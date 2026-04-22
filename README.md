@@ -1,4 +1,5 @@
 # BARSIC -- Basic All-purpose RDKit-based SQL Instant Chemistry for Snowflake
+<img alt="BARSIC" src="Barsic.png" width="300"/>
 
 DDL SQL code to create a set of user-defined functions in [Snowflake](https://www.snowflake.com/en/) to enable chemical structure queries (exact structure, substructure, superstructure, similarity), chemistry data file import and export, structure manipulations and standardizations, and molecular property computations based on [RDKit](https://www.rdkit.org/), an open-source toolkit for cheminformatics.
 
