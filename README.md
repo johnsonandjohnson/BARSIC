@@ -39,3 +39,9 @@ python3 tools/sql_udf_builder.py \
 This generates `sql/ChemCoreApi.sql` by injecting the `python/*.py` and `java/*.java`sources into the template.
 
 Note: all source code changes must be made in `templates/ChemCoreApi.sql.tpl` and/or source code files under java or python directories, but every time these changes are finalized and are ready for a release, `tools/sql_udf_builder.py` must be run to produce a version of ChemCoreApi.sql that incorporates the latest changes and is ready for deployment.
+
+## Acknowledgments
+
+Ramil Nugmanov (https://github.com/stsouko) for pre-release code reviews. Ramil also proposed splitting the large, hard-to-maintain SQL file containing definitions for all user-defined functions with inline Python or Java code provided by BARSIC into a “master” SQL template and separate Python and Java modules. A separate command-line utility then assembles these pieces into deployable SQL, which significantly simplified development, debugging, and testing of the inline code.
+
+Ksenia Alexandrova (https://github.com/KseniaA3) for creating the BARSIC logo.
