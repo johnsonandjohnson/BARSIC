@@ -45,3 +45,8 @@ Note: all source code changes must be made in `templates/ChemCoreApi.sql.tpl` an
 Ramil Nugmanov (https://github.com/stsouko) for pre-release code reviews. Ramil also proposed splitting the large, hard-to-maintain SQL file containing definitions for all user-defined functions with inline Python or Java code provided by BARSIC into a “master” SQL template and separate Python and Java modules. A separate command-line utility then assembles these pieces into deployable SQL, which significantly simplified development, debugging, and testing of the inline code.
 
 Ksenia Alexandrova (https://github.com/KseniaA3) for creating the BARSIC logo.
+
+## Release notes
+Original commit -- GNU AFFERO GENERAL PUBLIC LICENSE, Version 3.0
+license-change branch -> main -- Apache License, Version 2.0 (approved by the Copyright owner -- Johnson & Johnson)
+
