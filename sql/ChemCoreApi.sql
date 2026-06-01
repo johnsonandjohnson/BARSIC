@@ -58,19 +58,19 @@ class ArgumentParserX(argparse.ArgumentParser):
 
     def error(self, message):
         sys.tracebacklimit = 0
-        raise Exception(message) from None
+        raise ValueError(message) from None
 
     def exit(self, status = 0, message = None):
         sys.tracebacklimit = 0
-        raise Exception(message) from None
+        raise ValueError(message) from None
 
     def print_usage(self, file=None):
         sys.tracebacklimit = 0
-        raise Exception('Usage: ' + self.format_usage()) from  None
+        raise ValueError('Usage: ' + self.format_usage()) from  None
 
     def print_help(self, file=None):
         sys.tracebacklimit = 0
-        raise Exception('Help: ' + self.format_help()) from None
+        raise ValueError('Help: ' + self.format_help()) from None
 
 
 @lru_cache(maxsize=128)
@@ -148,7 +148,7 @@ def remove_data_sgroups(smiles: Optional[str]) -> Optional[str]:
         return s[:-3]
     return s
 
-def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -209,6 +209,11 @@ def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Opt
     # return is not needed, but keeps Sonar happy
     return None
 
+def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+    try:
+        return molstring_or_molbinary_to_molstring_internal(molstring, molbinary, option_str)
+    except:
+        return None
 $$
 ;
 
@@ -251,19 +256,19 @@ class ArgumentParserX(argparse.ArgumentParser):
 
     def error(self, message):
         sys.tracebacklimit = 0
-        raise Exception(message) from None
+        raise ValueError(message) from None
 
     def exit(self, status = 0, message = None):
         sys.tracebacklimit = 0
-        raise Exception(message) from None
+        raise ValueError(message) from None
 
     def print_usage(self, file=None):
         sys.tracebacklimit = 0
-        raise Exception('Usage: ' + self.format_usage()) from  None
+        raise ValueError('Usage: ' + self.format_usage()) from  None
 
     def print_help(self, file=None):
         sys.tracebacklimit = 0
-        raise Exception('Help: ' + self.format_help()) from None
+        raise ValueError('Help: ' + self.format_help()) from None
 
 
 @lru_cache(maxsize=128)
@@ -298,7 +303,7 @@ def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
     return m
 
 
-def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+def molstring_or_molbinary_to_molbinary_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -329,6 +334,14 @@ def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Opt
         return None
         
     return m.ToBinary()
+
+
+def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+    try:
+        molstring_or_molbinary_to_molbinary_internal(molstring, molbinary, option_str)
+    except:  #temporary
+        return None
+
 $$
 ;
 
