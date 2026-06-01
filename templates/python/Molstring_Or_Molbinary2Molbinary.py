@@ -7,6 +7,12 @@ from rdkit import Chem
 from rdkit.Chem import SaltRemover
 from typing import Optional
 
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 def is_molfile(molstring: Optional[str]) -> bool:
     if not molstring:
@@ -73,7 +79,8 @@ def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
     return m
 
 
-def molstring_or_molbinary_to_molbinary_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+@safe_call_decorator
+def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -104,11 +111,4 @@ def molstring_or_molbinary_to_molbinary_internal(molstring: Optional[str], molbi
         return None
         
     return m.ToBinary()
-
-
-def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
-    try:
-        molstring_or_molbinary_to_molbinary_internal(molstring, molbinary, option_str)
-    except:  #temporary
-        return None
 

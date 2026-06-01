@@ -16,7 +16,17 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Molstring(molstring VARCHAR DE
      HANDLER = 'molstring_or_molbinary_to_molstring'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding to a variety of different string-based formats, optionally transforming the input structure. Only one of molstring or molbinary arguments can be non-NULL. All available options can be listed by by running the following SQL: select Molstring_Or_Molbinary2Molstring(NULL, NULL, ''-h''); usage info will be returned as part of the error message. If the options argument value is not specified, computes canonical ChemAxon-compatible extended SMILES.'
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 import sys
 import re
 import hashlib
@@ -27,6 +37,13 @@ from enum import Enum, auto
 from rdkit import Chem
 from rdkit.Chem import SaltRemover
 from typing import Optional
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 # future work: auto-detect not only molfile/sdf and SMILES, but also other
 # encodings (InChi, etc.)
@@ -148,7 +165,8 @@ def remove_data_sgroups(smiles: Optional[str]) -> Optional[str]:
         return s[:-3]
     return s
 
-def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+@safe_call_decorator
+def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -209,11 +227,6 @@ def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbi
     # return is not needed, but keeps Sonar happy
     return None
 
-def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
-    try:
-        return molstring_or_molbinary_to_molstring_internal(molstring, molbinary, option_str)
-    except:
-        return None
 $$
 ;
 
@@ -227,7 +240,17 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Molbinary(molstring VARCHAR DE
      HANDLER = 'molstring_or_molbinary_to_molbinary'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding to the RDKit binary molecule encoding, optionally transforming the input structure. Only one of molstring or molbinary arguments can be non-NULL. All available options can be listed by by running the following SQL: select Molstring_Or_Molbinary2Molbinary(NULL, NULL, ''-h''); usage info will be returned as part of the error message. To convert molstrings to RDKit binary molecule encoding w/o applying any transforms, use the Molstring2Molbinary function, which has fewer arguments and is faster.'
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 import sys
 import hashlib
 from dataclasses import dataclass
@@ -236,6 +259,12 @@ import argparse
 from rdkit import Chem
 from rdkit.Chem import SaltRemover
 from typing import Optional
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
 
 
 def is_molfile(molstring: Optional[str]) -> bool:
@@ -303,7 +332,8 @@ def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
     return m
 
 
-def molstring_or_molbinary_to_molbinary_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+@safe_call_decorator
+def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -335,13 +365,6 @@ def molstring_or_molbinary_to_molbinary_internal(molstring: Optional[str], molbi
         
     return m.ToBinary()
 
-
-def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
-    try:
-        molstring_or_molbinary_to_molbinary_internal(molstring, molbinary, option_str)
-    except:  #temporary
-        return None
-
 $$
 ;
 
@@ -356,9 +379,25 @@ CREATE OR REPLACE FUNCTION Molstring2Molbinary(molstring VARCHAR)
      HANDLER = 'molstring_to_binary'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit binary molecule encoding. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds.'
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem
 from typing import Optional
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
 
 
 def is_molfile(molstring: Optional[str]) -> bool:
@@ -394,10 +433,27 @@ CREATE OR REPLACE FUNCTION Molstring2Pattern_Fingerprint(molstring VARCHAR)
      HANDLER = 'molstring2pattern_fingerprint'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds.'
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem, DataStructs
 from typing import Optional
 import threading
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 _lck = threading.RLock()
 _prev_molstring = None
@@ -440,15 +496,34 @@ CREATE OR REPLACE FUNCTION Molbinary2Pattern_Fingerprint(molbinary VARBINARY)
      HANDLER = 'molbinary2pattern_fingerprint'
      COMMENT='Converts RDKit binary-encoded molecule to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if molbinary is NULL, empty or represents an empty molecule with 0 atoms and 0 bonds. Returns error if molbinary is not a valid RDKit binary-encoded molecule.'     
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem, DataStructs
 from typing import Optional
 import threading
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 _lck = threading.RLock()
 _prev_bin = None
 _prev_fp = None
 
+
+@safe_call_decorator
 def molbinary2pattern_fingerprint(molbinary: Optional[bytes]) -> Optional[bytes]:
     global _prev_bin
     global _prev_fp
@@ -479,10 +554,27 @@ CREATE OR REPLACE FUNCTION Smarts2Pattern_Fingerprint(smarts VARCHAR)
      HANDLER = 'smarts2pattern_fingerprint'
      COMMENT='Converts SMARTS substructure pattern to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if smarts is NULL, empty, or represents an empty molecule with 0 atoms and 0 bonds. Returns error if smarts is invalid and cannot be parsed.'
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem, DataStructs
 from typing import Optional
 import threading
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 _lck = threading.RLock()
 _prev_smarts = None
@@ -522,11 +614,28 @@ CREATE OR REPLACE FUNCTION Molstring2Morgan_Fingerprint(molstring VARCHAR)
      HANDLER = 'molstring2morgan_fingerprint'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit Morgan fingerprint commonly used for fingerprint-based similarity search. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds. Generator options: radius=2, fpSize=2048, atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen()'
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 from typing import Optional
 import threading
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 _lck = threading.RLock()
 _prev_molstring = None
@@ -571,11 +680,27 @@ CREATE OR REPLACE FUNCTION Molbinary2Morgan_Fingerprint(molbinary VARBINARY)
      HANDLER = 'molbinary2morgan_fingerprint'
      COMMENT='Converts RDKit binary-encoded molecule to RDKit Morgan fingerprint commonly used for fingerprint-based similarity search. Returns NULL if molbinary is NULL or empty, or represents an empty molecule with 0 atoms and 0 bonds. Generator options: radius=2, fpSize=2048, atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen(). Returns error if molbinary is not a valid RDKit binary-encoded molecule.'          
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 from typing import Optional
 import threading
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
 
 _lck = threading.RLock()
 _prev_bin = None
@@ -583,6 +708,7 @@ _prev_fp = None
 _fpg = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048, atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen())
 
 
+@safe_call_decorator
 def molbinary2morgan_fingerprint(molbinary: Optional[bytes]) -> Optional[bytes]:
     global _prev_bin
     global _prev_fp
@@ -615,10 +741,27 @@ CREATE OR REPLACE FUNCTION Molbinary_Matches_Smarts(molbinary VARBINARY, smarts 
      HANDLER = 'molbinary_matches_smarts'
      COMMENT='Tests whether RDKit binary-encoded molecule matches the specified SMARTS pattern and returns TRUE iff it does and the screen_pass argument value is TRUE. The extra screen_pass argument is used for substructure query optimization based on fingerprint screening (see examples in the documentation and example workbooks). Returns NULL if any of the args are NULL. Returns error if molbinary is not a valid RDKit binary-encoded molecule of if smarts is invalid and cannot be parsed. Note: an empty SMARTS will not match any molecule, even an empty one. This seems to be illogical, since, in theory, a subgraph with 0 nodes and 0 edges must match any graph (or, at least, an empty one), but, in practice, this approach leads to fewer problems than the theoretically correct one. In RDKit itself, a molecule representing an empty pattern does not match anything either.'
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem
 from typing import Optional
 from functools import lru_cache
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 @lru_cache(maxsize=128)
 def get_pattern_mol(smarts: str) -> Optional[Chem.Mol]:
@@ -655,10 +798,26 @@ CREATE OR REPLACE FUNCTION Molstring_Matches_Smarts(molstring VARCHAR, smarts VA
      HANDLER = 'molstring_matches_smarts'
      COMMENT='Tests whether the molecule encoded as molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) matches the specified SMARTS pattern and returns TRUE iff it does and the screen_pass argument value is TRUE. The extra screen_pass argument is used for substructure query optimization based on fingerprint screening (see examples in the documentation and example workbooks). Returns NULL if any of the args are NULL. Returns FALSE if molstring is not a valid SMILES or molblock. Returns error if smarts is invalid and cannot be parsed. Note: an empty SMARTS will not match any molecule, even an empty one. This seems to be illogical, since, in theory, a subgraph with 0 nodes and 0 edges must match any graph (or, at least, an empty one), but, in practice, this approach leads to fewer problems than the theoretically correct one. In RDKit itself, a molecule representing an empty pattern does not match anything either.'     
      AS
-$$ 
+$$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem
 from typing import Optional
 from functools import lru_cache
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
 
 
 @lru_cache(maxsize=128)
@@ -705,7 +864,7 @@ CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
      HANDLER = 'tanimoto'
      COMMENT='Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
      AS
-$$ 
+$$
 from typing import Optional
 from bitarray import bitarray
 def tanimoto(b1: Optional[bytes], b2: Optional[bytes])->Optional[float]:
@@ -788,10 +947,27 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Medchem_Descriptors(molstring 
      COMMENT='Computes commonly used medchem properties (descriptors) for a molecule encoded as molstring (standard or ChemAxon SMILES or molfile/molblock) or as RDKit binary-encoded molecule. Only one of molstring or molbinary arguments can be non-NULL, otherwise, an error will be returned. Returns a table with one row and multiple columns corresponding to the computed descriptors. If molstring and molbinary are both NULLs, or molstring is invalid and cannot be parsed, returns a table with one row filled with NULLs. Returns an error if molbinary is not a valid RDKit binary-encoded molecule.'
      AS
 $$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from functools import lru_cache
 from rdkit import Chem
 from rdkit.ML.Descriptors import MoleculeDescriptors
 from typing import Optional
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 def is_molfile(molstring: Optional[str]) -> bool:
     if not molstring:
@@ -866,8 +1042,25 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary_Check(molstring VARCHAR DEFAUL
      COMMENT='Checks a molecule encoded as molstring (standard or ChemAxon SMILES or molfile/molblock) or as RDKit binary-encoded molecule. Only one of molstring or molbinary arguments can be non-NULL, otherwise, an error will be returned. Returns a table with one row and three columns: is_ok boolean, encoding varchar, and error_msg varchar. If both molstring and molbinary are NULL, the entire result row will be filled with NULLs. Otherwise, is_ok will contain True iff the input can be parsed into a molecule with no errors, encoding will contain a string representation of the encoding (MOLBLOCK, SMILES, or BINARY), and the error_msg will contain a description of the error or NULL. If raise_exception parameter is TRUE (it is FALSE by default) and the input cannot be parsed into a valid molecule, the method will raise an exception and quit instead of returning.'
      AS
 $$
+from typing import Callable
+from rdkit.Chem.rdchem import MolSanitizeException
+
+def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except exception_type:
+            return None
+    return wrapper
 from rdkit import Chem
 from typing import Optional
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 def is_molfile(molstring: Optional[str]) -> bool:
     if not molstring:

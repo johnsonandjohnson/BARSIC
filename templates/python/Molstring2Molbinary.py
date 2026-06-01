@@ -1,6 +1,12 @@
 from rdkit import Chem
 from typing import Optional
 
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 def is_molfile(molstring: Optional[str]) -> bool:
     if not molstring:

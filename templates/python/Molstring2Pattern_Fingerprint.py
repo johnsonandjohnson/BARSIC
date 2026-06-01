@@ -2,6 +2,13 @@ from rdkit import Chem, DataStructs
 from typing import Optional
 import threading
 
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
+
 _lck = threading.RLock()
 _prev_molstring = None
 _prev_fp = None

@@ -9,6 +9,13 @@ from rdkit import Chem
 from rdkit.Chem import SaltRemover
 from typing import Optional
 
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
+
 # future work: auto-detect not only molfile/sdf and SMILES, but also other
 # encodings (InChi, etc.)
 def is_molfile(molstring: Optional[str]) -> bool:
@@ -129,7 +136,8 @@ def remove_data_sgroups(smiles: Optional[str]) -> Optional[str]:
         return s[:-3]
     return s
 
-def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+@safe_call_decorator
+def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -190,8 +198,3 @@ def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbi
     # return is not needed, but keeps Sonar happy
     return None
 
-def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
-    try:
-        return molstring_or_molbinary_to_molstring_internal(molstring, molbinary, option_str)
-    except:
-        return None
