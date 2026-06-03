@@ -9,6 +9,13 @@ from rdkit import Chem
 from rdkit.Chem import SaltRemover
 from typing import Optional
 
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
+
 # future work: auto-detect not only molfile/sdf and SMILES, but also other
 # encodings (InChi, etc.)
 def is_molfile(molstring: Optional[str]) -> bool:
@@ -39,19 +46,19 @@ class ArgumentParserX(argparse.ArgumentParser):
 
     def error(self, message):
         sys.tracebacklimit = 0
-        raise Exception(message) from None
+        raise ValueError(message) from None
 
     def exit(self, status = 0, message = None):
         sys.tracebacklimit = 0
-        raise Exception(message) from None
+        raise ValueError(message) from None
 
     def print_usage(self, file=None):
         sys.tracebacklimit = 0
-        raise Exception('Usage: ' + self.format_usage()) from  None
+        raise ValueError('Usage: ' + self.format_usage()) from  None
 
     def print_help(self, file=None):
         sys.tracebacklimit = 0
-        raise Exception('Help: ' + self.format_help()) from None
+        raise ValueError('Help: ' + self.format_help()) from None
 
 
 @lru_cache(maxsize=128)
@@ -129,6 +136,7 @@ def remove_data_sgroups(smiles: Optional[str]) -> Optional[str]:
         return s[:-3]
     return s
 
+@safe_call_decorator
 def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)

@@ -2,10 +2,19 @@ from rdkit import Chem, DataStructs
 from typing import Optional
 import threading
 
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
+
 _lck = threading.RLock()
 _prev_bin = None
 _prev_fp = None
 
+
+@safe_call_decorator
 def molbinary2pattern_fingerprint(molbinary: Optional[bytes]) -> Optional[bytes]:
     global _prev_bin
     global _prev_fp

@@ -7,6 +7,12 @@ from rdkit import Chem
 from rdkit.Chem import SaltRemover
 from typing import Optional
 
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
 
 def is_molfile(molstring: Optional[str]) -> bool:
     if not molstring:
@@ -26,19 +32,19 @@ class ArgumentParserX(argparse.ArgumentParser):
 
     def error(self, message):
         sys.tracebacklimit = 0
-        raise Exception(message) from None
+        raise ValueError(message) from None
 
     def exit(self, status = 0, message = None):
         sys.tracebacklimit = 0
-        raise Exception(message) from None
+        raise ValueError(message) from None
 
     def print_usage(self, file=None):
         sys.tracebacklimit = 0
-        raise Exception('Usage: ' + self.format_usage()) from  None
+        raise ValueError('Usage: ' + self.format_usage()) from  None
 
     def print_help(self, file=None):
         sys.tracebacklimit = 0
-        raise Exception('Help: ' + self.format_help()) from None
+        raise ValueError('Help: ' + self.format_help()) from None
 
 
 @lru_cache(maxsize=128)
@@ -73,6 +79,7 @@ def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
     return m
 
 
+@safe_call_decorator
 def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
@@ -104,3 +111,4 @@ def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Opt
         return None
         
     return m.ToBinary()
+
