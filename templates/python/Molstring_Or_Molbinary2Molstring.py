@@ -7,6 +7,7 @@ import argparse
 from enum import Enum, auto
 from rdkit import Chem
 from rdkit.Chem import SaltRemover
+from rdkit.Chem import RegistrationHash as rh
 from typing import Optional
 
 try:
@@ -136,6 +137,18 @@ def remove_data_sgroups(smiles: Optional[str]) -> Optional[str]:
         return s[:-3]
     return s
 
+
+@lru_cache(128)
+@safe_call_decorator
+def molstring_or_molbinary_to_molstring_to_reg_layers(molstring: Optional[str],
+                                                      molbinary: Optional[bytes], option_str: str) -> Optional[dict]:
+    m = getmol(molstring, molbinary) # note that getmol never returns empty molecules
+    if m is None:
+        return None
+    return rh.GetMolLayers(m, enable_tautomer_hash_v2=True)  # todo: find out how it is implemented internally
+
+
+@lru_cache(128)
 @safe_call_decorator
 def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
