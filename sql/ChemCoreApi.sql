@@ -20,13 +20,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 import enum
 import sys
 import re
@@ -202,7 +205,7 @@ def mol_to_reg_layers(m: Optional[Chem.Mol]) -> Optional[dict]:
 
 @lru_cache(128)
 @safe_call_decorator
-def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -259,6 +262,8 @@ def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Opt
             return get_hashstring(Chem.MolToCXSmiles(m, p, f))
         case MolEnc.TAUTOHASH:
             layers = mol_to_reg_layers(m)
+            if not layers:
+                return None
             scheme = HashSchemeX.STEREO_INSENSITIVE_TAUTOMER_INSENSITIVE_LAYERS if opt.remove_stereo \
                      else HashSchemeX.TAUTOMER_INSENSITIVE_LAYERS
             # ignore wrong type warning here
@@ -271,6 +276,12 @@ def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Opt
             raise ValueError('Invalid/unknown output encoding')
     # return is not needed, but keeps Sonar happy
     return None
+
+
+# need this extra layer because of the @lru_cache(128) and @safe_call_decorator used on the handler result in
+# Python Interpreter Error: AttributeError: 'functools._lru_cache_wrapper' object has no attribute '__code__' error
+def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+    return molstring_or_molbinary_to_molstring_internal(molstring, molbinary, option_str)
 
 $$
 ;
@@ -289,13 +300,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 import sys
 import hashlib
 from dataclasses import dataclass
@@ -428,13 +442,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem
 from typing import Optional
 
@@ -482,13 +499,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem, DataStructs
 from typing import Optional
 import threading
@@ -545,13 +565,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem, DataStructs
 from typing import Optional
 import threading
@@ -603,13 +626,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem, DataStructs
 from typing import Optional
 import threading
@@ -663,13 +689,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 from typing import Optional
@@ -729,13 +758,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 from typing import Optional
@@ -790,13 +822,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem
 from typing import Optional
 from functools import lru_cache
@@ -847,13 +882,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem
 from typing import Optional
 from functools import lru_cache
@@ -995,13 +1033,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from functools import lru_cache
 from rdkit import Chem
 from rdkit.ML.Descriptors import MoleculeDescriptors
@@ -1090,13 +1131,16 @@ $$
 from typing import Callable
 from rdkit.Chem.rdchem import MolSanitizeException
 
-def safe_call_decorator(func: Callable, exception_type=MolSanitizeException):
+def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except exception_type:
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
             return None
     return wrapper
+
 from rdkit import Chem
 from typing import Optional
 
