@@ -1,3 +1,4 @@
+import enum
 import sys
 import re
 import hashlib
@@ -29,6 +30,7 @@ class MolEnc(Enum):
     SMILES = auto()
     MOLHASH = auto()
     MOLHASHFULL = auto()
+    TAUTOHASH = auto()
     INCHI = auto()
     INCHIKEY = auto()
 
@@ -68,7 +70,7 @@ def parse_options(option_str: str) -> M2MOptions:
                           'format, with additional options')
     group0 = argp.add_argument_group('Output Encoding')
     group0.add_argument('--out', required = True, help='The output molecule encoding '
-                                    '((smiles|smi)|(molfile|molblock)|molhash|molhashfull|inchi|inchikey)')
+                                    '((smiles|smi)|(molfile|molblock)|molhash|molhashfull|tautohash|inchi|inchikey)')
 
     group1 = argp.add_argument_group('Transform')
     group1.add_argument('--desalt', action='store_true', default=False, help='Remove (strip) salt')
@@ -89,7 +91,9 @@ def parse_options(option_str: str) -> M2MOptions:
         case 'molhash':
             enc = MolEnc.MOLHASH
         case 'molhashfull':
-            enc = MolEnc.MOLHASHFULL            
+            enc = MolEnc.MOLHASHFULL
+        case 'tautohash':
+            enc = MolEnc.TAUTOHASH
         case 'inchi':
             enc = MolEnc.INCHI
         case 'inchikey':
@@ -97,7 +101,7 @@ def parse_options(option_str: str) -> M2MOptions:
         case _:
             sys.tracebacklimit = 0
             raise ValueError('Invalid/unknown --out parameter, must be one of '
-                             '((smiles|smi)|(molfile|molblock)|molhash|molhashfull|inchi|inchikey)')
+                             '((smiles|smi)|(molfile|molblock)|molhash|molhashfull|tautohash|inchi|inchikey)')
     return M2MOptions(out_enc=enc, desalt=args.desalt, remove_stereo=args.remove_stereo,
                       smiles_kekule=args.smiles_kekule)
 
@@ -122,6 +126,8 @@ def get_hashstring(s: str) -> str:
     h.update(s.encode())
     return h.hexdigest()
 
+_DATA_SGROUP_RX = re.compile(r'SgD:(\d|,)*:(?!stereolabel)[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:[^,|:]*,?')
+
 # Removing data sgroups from extended SMILES strings is much easier and faster than removing
 # those groups from molecules before encoding them into extended SMILES.
 # See: https://docs.chemaxon.com/display/docs/formats_chemaxon-extended-smiles-and-smarts-cxsmiles-and-cxsmarts.md
@@ -130,19 +136,36 @@ def remove_data_sgroups(smiles: Optional[str]) -> Optional[str]:
         return smiles
     # Don't touch stereolabels. In some known use cases, stereolabels are used to resolve ambiguities
     # in the extended relative stereo notation.
-    data_sgroup_rx = r'SgD:(\d|,)*:(?!stereolabel)[^:]*:[^:]*:[^:]*:[^:]*:[^:]*:[^,|:]*,?'
     # If we ended up with trailing ' ||', remove 3 last characters.
-    s = re.sub(data_sgroup_rx, '', smiles)
+    s = _DATA_SGROUP_RX.sub('', smiles)
     if s.endswith(' ||'):
         return s[:-3]
     return s
 
 
+# for some reason, the 'original' HashScheme does not have these options:
+@enum.unique
+class HashSchemeX(enum.Enum):
+    EXACT_LAYERS = (
+        rh.HashLayer.CANONICAL_SMILES, # trailing commas are important! This must be a tuple
+    )
+
+    STEREO_INSENSITIVE_EXACT_LAYERS = (
+        rh.HashLayer.NO_STEREO_SMILES,
+    )
+
+    STEREO_INSENSITIVE_TAUTOMER_INSENSITIVE_LAYERS = (
+        rh.HashLayer.NO_STEREO_TAUTOMER_HASH,
+    )
+
+    TAUTOMER_INSENSITIVE_LAYERS = (
+        rh.HashLayer.TAUTOMER_HASH,
+    )
+
+
 @lru_cache(128)
 @safe_call_decorator
-def molstring_or_molbinary_to_molstring_to_reg_layers(molstring: Optional[str],
-                                                      molbinary: Optional[bytes], option_str: str) -> Optional[dict]:
-    m = getmol(molstring, molbinary) # note that getmol never returns empty molecules
+def mol_to_reg_layers(m: Optional[Chem.Mol]) -> Optional[dict]:
     if m is None:
         return None
     return rh.GetMolLayers(m, enable_tautomer_hash_v2=True)  # todo: find out how it is implemented internally
@@ -173,11 +196,14 @@ def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Opt
         # passed to the function, so we don't need to clone it
         m = _salt_remover.StripMol(m, dontRemoveEverything=True)
 
-    if opt.remove_stereo:
+    # we don't need to remove stereo for the tautomer hash,
+    # because rh.GetMolLayers takes care of that internally
+    if opt.remove_stereo and opt.out_enc != MolEnc.TAUTOHASH:
         clone_if_needed()
         Chem.RemoveStereochemistry(m)
         Chem.ClearMolSubstanceGroups(m)
 
+    # TODO: see if we can avoid calling GetMolLayers, because we need it only for the tautomeric hashes
     match opt.out_enc:
         case MolEnc.SMILES:
             p = Chem.SmilesWriteParams()
@@ -201,7 +227,13 @@ def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Opt
             p = Chem.SmilesWriteParams()
             p.canonical = True
             f = Chem.rdmolfiles.CXSmilesFields.CX_ALL
-            return get_hashstring(Chem.MolToCXSmiles(m, p, f))            
+            return get_hashstring(Chem.MolToCXSmiles(m, p, f))
+        case MolEnc.TAUTOHASH:
+            layers = mol_to_reg_layers(m)
+            scheme = HashSchemeX.STEREO_INSENSITIVE_TAUTOMER_INSENSITIVE_LAYERS if opt.remove_stereo \
+                     else HashSchemeX.TAUTOMER_INSENSITIVE_LAYERS
+            # ignore wrong type warning here
+            return rh.GetMolHash(layers, hash_scheme=scheme)
         case MolEnc.INCHI:
             return Chem.MolToInchi(m)
         case MolEnc.INCHIKEY:
