@@ -1,5 +1,4 @@
 import sys
-import hashlib
 from dataclasses import dataclass
 from functools import lru_cache
 import argparse
@@ -23,6 +22,7 @@ def is_molfile(molstring: Optional[str]) -> bool:
 @dataclass
 class M2MOptions:
     desalt: bool
+    additional_desalt_patterns: str | None
     remove_stereo: bool
     # options to be added as needed
 
@@ -55,14 +55,16 @@ def parse_options(option_str: str) -> M2MOptions:
     group1 = argp.add_argument_group('Transform')
     # future work: standardize tautomers w/options.
     group1.add_argument('--desalt', action='store_true', default=False, help='Remove (strip) salt')
+    group1.add_argument('--desalt_smarts_list', required=False, default=None, help='Additional desalt SMARTS patterns separated with |')
     group1.add_argument('--remove_stereo', action='store_true', default=False, help='Remove stereo')
 
 
     args = argp.parse_args(option_str.split())
 
-    return M2MOptions(desalt=args.desalt, remove_stereo=args.remove_stereo)
+    return M2MOptions(desalt=args.desalt,
+                      additional_desalt_patterns=args.desalt_smarts_list,
+                      remove_stereo=args.remove_stereo)
 
-_salt_remover = SaltRemover.SaltRemover()
 
 @lru_cache(128)
 def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
@@ -101,7 +103,7 @@ def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Opt
     if opt.desalt:
         # note that StripMol returns a new Mol instance and does not change the molecule
         # passed to the function, so we don't need to clone it
-        m = _salt_remover.StripMol(m, dontRemoveEverything=True)
+        m = get_salt_remover(opt.additional_desalt_patterns).StripMol(m, dontRemoveEverything=True)
     if opt.remove_stereo:
         clone_if_needed()
         Chem.RemoveStereochemistry(m)

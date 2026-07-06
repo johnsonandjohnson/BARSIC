@@ -13,7 +13,10 @@ from rdkit.Chem import RegistrationHash as rh
 from typing import Optional
 import io
 import pandas as pd
+from rdkit.Chem.SaltRemover import InputFormat
+
 import Molstring_Or_Molbinary2Molstring as mbs
+import Molstring_Or_Molbinary2Molbinary as mbb
 
 # charged + imine
 enamine_mol1 = R"""
@@ -277,6 +280,42 @@ class Tests(unittest.TestCase):
         print(mbs.mol_to_reg_layers.cache_info())
         print(mbs.getmol.cache_info())
 
+
+    def test6(self):
+        s = 'CNCCN(C)CCCC(C(C)C)N1CC(C)(CCc2ccccc2O)C1.CC(=O)O.O=S(=O)(O)c1ccccc1.Cl'
+        mol = Chem.MolFromSmiles(s)
+        patterns = 'O=S(=O)(O)c1ccccc1|O=C(O)C1CCCC1'
+        patterns = patterns.replace('|', '\n')
+        default_salt_remover = SaltRemover.SaltRemover()
+        salt_remover = SaltRemover.SaltRemover(defnData=patterns, defnFormat=InputFormat.SMARTS)
+        salt_remover.salts = salt_remover.salts + default_salt_remover.salts;
+        m1 = salt_remover.StripMol(mol)
+        s1 = Chem.MolToSmiles(m1)
+        print(s1)
+
+    def test7(self):
+        s = 'CNCCN(C)CCCC(C(C)C)N1CC(C)(CCc2ccccc2O)C1.CC(=O)O.O=S(=O)(O)c1ccccc1.Cl'
+        expected_default = 'CNCCN(C)CCCC(C(C)C)N1CC(C)(CCc2ccccc2O)C1.O=S(=O)(O)c1ccccc1'
+        expected_with_additional_patterns = 'CNCCN(C)CCCC(C(C)C)N1CC(C)(CCc2ccccc2O)C1'
+        patterns = 'O=S(=O)(O)c1ccccc1|O=C(O)C1CCCC1'
+        b0 = mbb.molstring_or_molbinary_to_molbinary(s, None, '--desalt')
+        b1 = mbb.molstring_or_molbinary_to_molbinary(s, None, f'--desalt --desalt_smarts_list {patterns}')
+
+        sb0 = mbs.molstring_or_molbinary_to_molstring(None, b0, '--out smi')
+        sb1 = mbs.molstring_or_molbinary_to_molstring(None, b1, '--out smi')
+
+        s0 = mbs.molstring_or_molbinary_to_molstring(s, None, '--out smi --desalt')
+        s1 = mbs.molstring_or_molbinary_to_molstring(s, None, f'--out smi --desalt --desalt_smarts_list {patterns}')
+
+        self.assertEquals(expected_default, sb0)
+        self.assertEquals(expected_default, s0)
+
+        self.assertEquals(expected_with_additional_patterns, sb1)
+        self.assertEquals(expected_with_additional_patterns, s1)
+
+
+        print('Done')
+        pass
 
 if __name__ == '__main__':
     unittest.main()

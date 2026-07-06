@@ -17,8 +17,12 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Molstring(molstring VARCHAR DE
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding to a variety of different string-based formats, optionally transforming the input structure. Only one of molstring or molbinary arguments can be non-NULL. All available options can be listed by by running the following SQL: select Molstring_Or_Molbinary2Molstring(NULL, NULL, ''-h''); usage info will be returned as part of the error message. If the options argument value is not specified, computes canonical ChemAxon-compatible extended SMILES.'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -29,6 +33,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 import enum
 import sys
@@ -71,6 +86,7 @@ class MolEnc(Enum):
 class M2MOptions:
     out_enc: MolEnc
     desalt: bool
+    additional_desalt_patterns: str | None
     remove_stereo: bool
     smiles_kekule: bool
     # options to be added as needed
@@ -106,6 +122,7 @@ def parse_options(option_str: str) -> M2MOptions:
 
     group1 = argp.add_argument_group('Transform')
     group1.add_argument('--desalt', action='store_true', default=False, help='Remove (strip) salt')
+    group1.add_argument('--desalt_smarts_list', required=False, default=None, help='Additional desalt SMARTS patterns separated with |')
     group1.add_argument('--remove_stereo', action='store_true', default=False, help='Remove stereo')
 
     group2 = argp.add_argument_group('SMILES encoder options')
@@ -134,10 +151,11 @@ def parse_options(option_str: str) -> M2MOptions:
             sys.tracebacklimit = 0
             raise ValueError('Invalid/unknown --out parameter, must be one of '
                              '((smiles|smi)|(molfile|molblock)|molhash|molhashfull|tautohash|inchi|inchikey)')
-    return M2MOptions(out_enc=enc, desalt=args.desalt, remove_stereo=args.remove_stereo,
+    return M2MOptions(out_enc=enc, desalt=args.desalt,
+                      additional_desalt_patterns=args.desalt_smarts_list,
+                      remove_stereo=args.remove_stereo,
                       smiles_kekule=args.smiles_kekule)
 
-_salt_remover = SaltRemover.SaltRemover()
 
 @lru_cache(128)
 def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
@@ -226,7 +244,7 @@ def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbi
     if opt.desalt:
         # note that StripMol returns a new Mol instance and does not change the molecule
         # passed to the function, so we don't need to clone it
-        m = _salt_remover.StripMol(m, dontRemoveEverything=True)
+        m = get_salt_remover(opt.additional_desalt_patterns).StripMol(m, dontRemoveEverything=True)
 
     # we don't need to remove stereo for the tautomer hash,
     # because rh.GetMolLayers takes care of that internally
@@ -297,8 +315,12 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Molbinary(molstring VARCHAR DE
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding to the RDKit binary molecule encoding, optionally transforming the input structure. Only one of molstring or molbinary arguments can be non-NULL. All available options can be listed by by running the following SQL: select Molstring_Or_Molbinary2Molbinary(NULL, NULL, ''-h''); usage info will be returned as part of the error message. To convert molstrings to RDKit binary molecule encoding w/o applying any transforms, use the Molstring2Molbinary function, which has fewer arguments and is faster.'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -310,8 +332,18 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
+
 import sys
-import hashlib
 from dataclasses import dataclass
 from functools import lru_cache
 import argparse
@@ -335,6 +367,7 @@ def is_molfile(molstring: Optional[str]) -> bool:
 @dataclass
 class M2MOptions:
     desalt: bool
+    additional_desalt_patterns: str | None
     remove_stereo: bool
     # options to be added as needed
 
@@ -367,14 +400,16 @@ def parse_options(option_str: str) -> M2MOptions:
     group1 = argp.add_argument_group('Transform')
     # future work: standardize tautomers w/options.
     group1.add_argument('--desalt', action='store_true', default=False, help='Remove (strip) salt')
+    group1.add_argument('--desalt_smarts_list', required=False, default=None, help='Additional desalt SMARTS patterns separated with |')
     group1.add_argument('--remove_stereo', action='store_true', default=False, help='Remove stereo')
 
 
     args = argp.parse_args(option_str.split())
 
-    return M2MOptions(desalt=args.desalt, remove_stereo=args.remove_stereo)
+    return M2MOptions(desalt=args.desalt,
+                      additional_desalt_patterns=args.desalt_smarts_list,
+                      remove_stereo=args.remove_stereo)
 
-_salt_remover = SaltRemover.SaltRemover()
 
 @lru_cache(128)
 def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
@@ -413,7 +448,7 @@ def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Opt
     if opt.desalt:
         # note that StripMol returns a new Mol instance and does not change the molecule
         # passed to the function, so we don't need to clone it
-        m = _salt_remover.StripMol(m, dontRemoveEverything=True)
+        m = get_salt_remover(opt.additional_desalt_patterns).StripMol(m, dontRemoveEverything=True)
     if opt.remove_stereo:
         clone_if_needed()
         Chem.RemoveStereochemistry(m)
@@ -439,8 +474,12 @@ CREATE OR REPLACE FUNCTION Molstring2Molbinary(molstring VARCHAR)
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit binary molecule encoding. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds.'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -451,6 +490,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem
 from typing import Optional
@@ -496,8 +546,12 @@ CREATE OR REPLACE FUNCTION Molstring2Pattern_Fingerprint(molstring VARCHAR)
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds.'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -508,6 +562,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem, DataStructs
 from typing import Optional
@@ -562,8 +627,12 @@ CREATE OR REPLACE FUNCTION Molbinary2Pattern_Fingerprint(molbinary VARBINARY)
      COMMENT='Converts RDKit binary-encoded molecule to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if molbinary is NULL, empty or represents an empty molecule with 0 atoms and 0 bonds. Returns error if molbinary is not a valid RDKit binary-encoded molecule.'     
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -574,6 +643,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem, DataStructs
 from typing import Optional
@@ -623,8 +703,12 @@ CREATE OR REPLACE FUNCTION Smarts2Pattern_Fingerprint(smarts VARCHAR)
      COMMENT='Converts SMARTS substructure pattern to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if smarts is NULL, empty, or represents an empty molecule with 0 atoms and 0 bonds. Returns error if smarts is invalid and cannot be parsed.'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -635,6 +719,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem, DataStructs
 from typing import Optional
@@ -686,8 +781,12 @@ CREATE OR REPLACE FUNCTION Molstring2Morgan_Fingerprint(molstring VARCHAR)
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit Morgan fingerprint commonly used for fingerprint-based similarity search. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds. Generator options: radius=2, fpSize=2048, atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen()'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -698,6 +797,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
@@ -755,8 +865,12 @@ CREATE OR REPLACE FUNCTION Molbinary2Morgan_Fingerprint(molbinary VARBINARY)
      COMMENT='Converts RDKit binary-encoded molecule to RDKit Morgan fingerprint commonly used for fingerprint-based similarity search. Returns NULL if molbinary is NULL or empty, or represents an empty molecule with 0 atoms and 0 bonds. Generator options: radius=2, fpSize=2048, atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen(). Returns error if molbinary is not a valid RDKit binary-encoded molecule.'          
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -767,6 +881,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
@@ -819,8 +944,12 @@ CREATE OR REPLACE FUNCTION Molbinary_Matches_Smarts(molbinary VARBINARY, smarts 
      COMMENT='Tests whether RDKit binary-encoded molecule matches the specified SMARTS pattern and returns TRUE iff it does and the screen_pass argument value is TRUE. The extra screen_pass argument is used for substructure query optimization based on fingerprint screening (see examples in the documentation and example workbooks). Returns NULL if any of the args are NULL. Returns error if molbinary is not a valid RDKit binary-encoded molecule of if smarts is invalid and cannot be parsed. Note: an empty SMARTS will not match any molecule, even an empty one. This seems to be illogical, since, in theory, a subgraph with 0 nodes and 0 edges must match any graph (or, at least, an empty one), but, in practice, this approach leads to fewer problems than the theoretically correct one. In RDKit itself, a molecule representing an empty pattern does not match anything either.'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -831,6 +960,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem
 from typing import Optional
@@ -879,8 +1019,12 @@ CREATE OR REPLACE FUNCTION Molstring_Matches_Smarts(molstring VARCHAR, smarts VA
      COMMENT='Tests whether the molecule encoded as molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) matches the specified SMARTS pattern and returns TRUE iff it does and the screen_pass argument value is TRUE. The extra screen_pass argument is used for substructure query optimization based on fingerprint screening (see examples in the documentation and example workbooks). Returns NULL if any of the args are NULL. Returns FALSE if molstring is not a valid SMILES or molblock. Returns error if smarts is invalid and cannot be parsed. Note: an empty SMARTS will not match any molecule, even an empty one. This seems to be illogical, since, in theory, a subgraph with 0 nodes and 0 edges must match any graph (or, at least, an empty one), but, in practice, this approach leads to fewer problems than the theoretically correct one. In RDKit itself, a molecule representing an empty pattern does not match anything either.'     
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -891,6 +1035,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem
 from typing import Optional
@@ -1030,8 +1185,12 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Medchem_Descriptors(molstring 
      COMMENT='Computes commonly used medchem properties (descriptors) for a molecule encoded as molstring (standard or ChemAxon SMILES or molfile/molblock) or as RDKit binary-encoded molecule. Only one of molstring or molbinary arguments can be non-NULL, otherwise, an error will be returned. Returns a table with one row and multiple columns corresponding to the computed descriptors. If molstring and molbinary are both NULLs, or molstring is invalid and cannot be parsed, returns a table with one row filled with NULLs. Returns an error if molbinary is not a valid RDKit binary-encoded molecule.'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -1042,6 +1201,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from functools import lru_cache
 from rdkit import Chem
@@ -1128,8 +1298,12 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary_Check(molstring VARCHAR DEFAUL
      COMMENT='Checks a molecule encoded as molstring (standard or ChemAxon SMILES or molfile/molblock) or as RDKit binary-encoded molecule. Only one of molstring or molbinary arguments can be non-NULL, otherwise, an error will be returned. Returns a table with one row and three columns: is_ok boolean, encoding varchar, and error_msg varchar. If both molstring and molbinary are NULL, the entire result row will be filled with NULLs. Otherwise, is_ok will contain True iff the input can be parsed into a molecule with no errors, encoding will contain a string representation of the encoding (MOLBLOCK, SMILES, or BINARY), and the error_msg will contain a description of the error or NULL. If raise_exception parameter is TRUE (it is FALSE by default) and the input cannot be parsed into a valid molecule, the method will raise an exception and quit instead of returning.'
      AS
 $$
+from functools import lru_cache
 from typing import Callable
+
+from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -1140,6 +1314,17 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
 
 from rdkit import Chem
 from typing import Optional

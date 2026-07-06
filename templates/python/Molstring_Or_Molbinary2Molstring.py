@@ -39,6 +39,7 @@ class MolEnc(Enum):
 class M2MOptions:
     out_enc: MolEnc
     desalt: bool
+    additional_desalt_patterns: str | None
     remove_stereo: bool
     smiles_kekule: bool
     # options to be added as needed
@@ -74,6 +75,7 @@ def parse_options(option_str: str) -> M2MOptions:
 
     group1 = argp.add_argument_group('Transform')
     group1.add_argument('--desalt', action='store_true', default=False, help='Remove (strip) salt')
+    group1.add_argument('--desalt_smarts_list', required=False, default=None, help='Additional desalt SMARTS patterns separated with |')
     group1.add_argument('--remove_stereo', action='store_true', default=False, help='Remove stereo')
 
     group2 = argp.add_argument_group('SMILES encoder options')
@@ -102,10 +104,11 @@ def parse_options(option_str: str) -> M2MOptions:
             sys.tracebacklimit = 0
             raise ValueError('Invalid/unknown --out parameter, must be one of '
                              '((smiles|smi)|(molfile|molblock)|molhash|molhashfull|tautohash|inchi|inchikey)')
-    return M2MOptions(out_enc=enc, desalt=args.desalt, remove_stereo=args.remove_stereo,
+    return M2MOptions(out_enc=enc, desalt=args.desalt,
+                      additional_desalt_patterns=args.desalt_smarts_list,
+                      remove_stereo=args.remove_stereo,
                       smiles_kekule=args.smiles_kekule)
 
-_salt_remover = SaltRemover.SaltRemover()
 
 @lru_cache(128)
 def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
@@ -194,7 +197,7 @@ def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbi
     if opt.desalt:
         # note that StripMol returns a new Mol instance and does not change the molecule
         # passed to the function, so we don't need to clone it
-        m = _salt_remover.StripMol(m, dontRemoveEverything=True)
+        m = get_salt_remover(opt.additional_desalt_patterns).StripMol(m, dontRemoveEverything=True)
 
     # we don't need to remove stereo for the tautomer hash,
     # because rh.GetMolLayers takes care of that internally
