@@ -250,3 +250,33 @@ $$
 -- @include python/Molstring_Or_Molbinary_Check.py
 $$
 ;
+
+-- HELM support (Proof of Concept) ---------------------------------------------------------
+CREATE OR REPLACE PROCEDURE helm2molbinary(monomer_table VARCHAR, helm_table VARCHAR)
+RETURNS table(ID INT, MOLBINARY VARBINARY)
+LANGUAGE PYTHON
+RUNTIME_VERSION = 3.12
+PACKAGES = ('snowflake-snowpark-python', 'rdkit')
+HANDLER = 'main'
+COMMENT=$$Converts HELM strings in the specified helm_table to full molecular representation and returns structures
+encoded in the RDKit binary format as a tabile with the ID INT and BINARY_MOL VARBINARY columns. The ID's correspond
+to those in the table specified via helm_table arg, which must contain at least two columns, ID INT and HELM VARCHAR.
+Reads monomers from the table specified via monomer_table argument.
+The table specified via the monomer_table argument must contain the MOLFILE VARCHAR column populated with
+SDF records with data fields as documented in https://github.com/adaliaramon/helmkit
+The current implementation relies on re-factored code from the above repo (see additional comments in HelmMolecule.py).
+Example:
+call helm2molbinary(TABLE(monomer), TABLE(peptide)) ->>
+SELECT p.id, p.helm, p.original_name_in_source_literature
+FROM $1 as h
+join peptide p on p.id = h.id
+where molbinary_matches_smarts(molbinary, 'c1cc2ccccc2n1', TRUE);
+$$
+AS
+$$
+
+-- @include python/HelmMolecule.py
+
+-- @include python/Helm2Molbinary.py
+
+$$;
