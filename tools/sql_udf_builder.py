@@ -9,7 +9,7 @@ Example:
 
 Usage:
   python tools/sql_udf_builder.py \
-      --template templates/ChemCoreApi.sql.tpl \
+      --template templates/ChemCoreApi.tpl.sql \
       --output sql/ChemCoreApi.sql
 """
 

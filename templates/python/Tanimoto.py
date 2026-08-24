@@ -1,3 +1,6 @@
+# NOTE: due to problems with the bitarray package, this function is currently not used.
+# ChemCoreApi.tpl.sql now defines two identical functions, Tanimoto and Tanimoto_J, 
+# both using the Java implementation.
 from typing import Optional
 from bitarray import bitarray
 def tanimoto(b1: Optional[bytes], b2: Optional[bytes])->Optional[float]:

@@ -1092,36 +1092,24 @@ $$
 
 -- Similarity search UDF's ---------------------------
 
-CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
-     RETURNS FLOAT 
-     LANGUAGE PYTHON 
-     RETURNS NULL ON NULL INPUT
-     IMMUTABLE    
-     RUNTIME_VERSION = '3.11' 
-     PACKAGES = ('bitarray==2.5.1')  -- note: the latest version in Snowflake (3.4.2 as of now) seems to be broken!
-     HANDLER = 'tanimoto'
-     COMMENT='Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
-     AS
-$$
-from typing import Optional
-from bitarray import bitarray
-def tanimoto(b1: Optional[bytes], b2: Optional[bytes])->Optional[float]:
-    if not b1 or not b2:
-        return None
-    b1b = bitarray()
-    b2b = bitarray()
-    b1b.frombytes(b1)
-    b2b.frombytes(b2)
-    if len(b1b) != len(b2b):
-        raise ValueError('Bitsets are of different lengths')
-    ba_and = b1b & b2b  #  intersection (common bits)
-    and_count = ba_and.count(1)
-    union_cnt = b1b.count(1) + b2b.count(1) - and_count  # could also use (b1b | b2b).count(1), but it would be slower
-    if union_cnt == 0:
-        return 1.0  # can only happen if both b1 and b2 have no bits set to 1
-    return and_count / float(union_cnt)
-$$
-;
+-- NOTE: due to problems with the bitarray package, this function is currently not used.
+-- ChemCoreApi.tpl.sql now defines two identical functions, Tanimoto and Tanimoto_J,
+-- both using the Java implementation.
+
+--CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
+--     RETURNS FLOAT
+--     LANGUAGE PYTHON
+--     RETURNS NULL ON NULL INPUT
+--     IMMUTABLE
+--     RUNTIME_VERSION = '3.11'
+--     PACKAGES = ('bitarray==2.5.1')  -- note: the latest version in Snowflake (3.4.2 as of now) seems to be broken!
+--     HANDLER = 'tanimoto'
+--     COMMENT='Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
+--     AS
+--$$
+-- -- @donotinclude python/Tanimoto.py
+-- $$
+--;
 
 
 -- A version of Tanimoto implemented in Java. Can be faster compared to the Python version.
@@ -1172,6 +1160,57 @@ class Tanimoto
 };
 $$
 ;
+
+
+-- Defined identically to the Tanimoto_J above. Need both for backward compatibility.
+-- See the comments above.
+CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
+     RETURNS FLOAT
+     LANGUAGE JAVA
+     RETURNS NULL ON NULL INPUT
+     IMMUTABLE
+     HANDLER = 'Tanimoto.calculate'
+     -- The Java code will be pre-compiled and stored in the jar file.
+     -- Note that the path must be different from the one in Tanimoto_J above.
+     TARGET_PATH = '@java_handlers/tanimoto_1.jar'
+     COMMENT='A version of TANIMOTO implemented in Java. Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
+     AS
+$$
+import java.util.BitSet;
+class Tanimoto 
+{
+    public static double calculate(byte[] v1, byte[] v2) 
+    {
+        // Note, we don't have to check the args for null,
+        // because this UDF is declared with RETURNS NULL ON NULL INPUT,
+        // so it won't be called if either of both v1 and v1 are null's.
+        if (v1.length != v2.length)
+        {
+            String msg = String.format("Vectors representing bitsets must be of equal size. v1.length: %d, v2.length: %d.", 
+                                v1.length, v2.length);
+            throw new IllegalArgumentException(msg);
+        }
+        BitSet bitset1 = BitSet.valueOf(v1); 
+        BitSet bitset2 = BitSet.valueOf(v2);
+        // Create a copy of bitset1 to find the intersection
+        BitSet intersection = (BitSet) bitset1.clone();
+        intersection.and(bitset2);
+    
+        int nIntersection = intersection.cardinality(); // Number of "on" bits in intersection
+        int nA = bitset1.cardinality(); // Number of "on" bits in bitset1
+        int nB = bitset2.cardinality(); // Number of "on" bits in bitset2
+    
+        if (nA + nB - nIntersection == 0) 
+        {
+            return 1.0; // Avoid division by zero if both sets are empty. Consider them identical.
+        }
+    
+        return (double) nIntersection / (nA + nB - nIntersection);
+    }
+};
+$$
+;
+
 
 -- Molecular properties and descriptor UDF's ---------------------------
 
@@ -1402,7 +1441,7 @@ RUNTIME_VERSION = 3.12
 PACKAGES = ('snowflake-snowpark-python', 'rdkit')
 HANDLER = 'main'
 COMMENT=$$Converts HELM strings in the specified helm_table to full molecular representation and returns structures
-encoded in the RDKit binary format as a tabile with the ID INT and BINARY_MOL VARBINARY columns. The ID's correspond
+encoded in the RDKit binary format as a tabile with the ID INT and BINARY_MOL VARBINARY columns. The IDs correspond
 to those in the table specified via helm_table arg, which must contain at least two columns, ID INT and HELM VARCHAR.
 Reads monomers from the table specified via monomer_table argument.
 The table specified via the monomer_table argument must contain the MOLFILE VARCHAR column populated with

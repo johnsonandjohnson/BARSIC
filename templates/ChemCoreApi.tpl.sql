@@ -184,20 +184,24 @@ $$
 
 -- Similarity search UDF's ---------------------------
 
-CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
-     RETURNS FLOAT 
-     LANGUAGE PYTHON 
-     RETURNS NULL ON NULL INPUT
-     IMMUTABLE    
-     RUNTIME_VERSION = '3.11' 
-     PACKAGES = ('bitarray==2.5.1')  -- note: the latest version in Snowflake (3.4.2 as of now) seems to be broken!
-     HANDLER = 'tanimoto'
-     COMMENT='Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
-     AS
-$$
--- @include python/Tanimoto.py
-$$
-;
+-- NOTE: due to problems with the bitarray package, this function is currently not used.
+-- ChemCoreApi.tpl.sql now defines two identical functions, Tanimoto and Tanimoto_J,
+-- both using the Java implementation.
+
+--CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
+--     RETURNS FLOAT
+--     LANGUAGE PYTHON
+--     RETURNS NULL ON NULL INPUT
+--     IMMUTABLE
+--     RUNTIME_VERSION = '3.11'
+--     PACKAGES = ('bitarray==2.5.1')  -- note: the latest version in Snowflake (3.4.2 as of now) seems to be broken!
+--     HANDLER = 'tanimoto'
+--     COMMENT='Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
+--     AS
+--$$
+-- -- @donotinclude python/Tanimoto.py
+-- $$
+--;
 
 
 -- A version of Tanimoto implemented in Java. Can be faster compared to the Python version.
@@ -217,6 +221,26 @@ $$
 -- @include java/Tanimoto.java
 $$
 ;
+
+
+-- Defined identically to the Tanimoto_J above. Need both for backward compatibility.
+-- See the comments above.
+CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
+     RETURNS FLOAT
+     LANGUAGE JAVA
+     RETURNS NULL ON NULL INPUT
+     IMMUTABLE
+     HANDLER = 'Tanimoto.calculate'
+     -- The Java code will be pre-compiled and stored in the jar file.
+     -- Note that the path must be different from the one in Tanimoto_J above.
+     TARGET_PATH = '@java_handlers/tanimoto_1.jar'
+     COMMENT='A version of TANIMOTO implemented in Java. Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
+     AS
+$$
+-- @include java/Tanimoto.java
+$$
+;
+
 
 -- Molecular properties and descriptor UDF's ---------------------------
 
@@ -259,7 +283,7 @@ RUNTIME_VERSION = 3.12
 PACKAGES = ('snowflake-snowpark-python', 'rdkit')
 HANDLER = 'main'
 COMMENT=$$Converts HELM strings in the specified helm_table to full molecular representation and returns structures
-encoded in the RDKit binary format as a tabile with the ID INT and BINARY_MOL VARBINARY columns. The ID's correspond
+encoded in the RDKit binary format as a tabile with the ID INT and BINARY_MOL VARBINARY columns. The IDs correspond
 to those in the table specified via helm_table arg, which must contain at least two columns, ID INT and HELM VARCHAR.
 Reads monomers from the table specified via monomer_table argument.
 The table specified via the monomer_table argument must contain the MOLFILE VARCHAR column populated with

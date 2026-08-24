@@ -17,7 +17,7 @@ The sql folder contains the core DDL and examples. To create definitions of the 
 The inline Python/Java code for each Snowflake Python/Java UDF is provided in separate Python/Java modules to simplify the code development and testing. Use `tools/sql_udf_builder.py` as described below to assemble the SQL.
 
 Structure:
-- `templates/ChemCoreApi.sql.tpl` – template SQL; each UDF Python block is replaced by an include directive.
+- `templates/ChemCoreApi.tpl.sql` – template SQL; each UDF Python block is replaced by an include directive.
 - `python/*.py` – per-UDF Python source files extracted from the monolithic SQL. Each file starts with a comment that highlights the exposed Python handler function used by the corresponding SQL UDF.
 - `tools/sql_udf_builder.py` – compiler that assembles the final SQL by injecting the Python sources back into the template.
 
@@ -32,13 +32,13 @@ From the project root, run:
 
 ```
 python3 tools/sql_udf_builder.py \
-  --template templates/ChemCoreApi.sql.tpl \
+  --template templates/ChemCoreApi.tpl.sql \
   --output sql/ChemCoreApi.sql
 ```
 
 This generates `sql/ChemCoreApi.sql` by injecting the `python/*.py` and `java/*.java`sources into the template.
 
-Note: all source code changes must be made in `templates/ChemCoreApi.sql.tpl` and/or source code files under java or python directories, but every time these changes are finalized and are ready for a release, `tools/sql_udf_builder.py` must be run to produce a version of ChemCoreApi.sql that incorporates the latest changes and is ready for deployment.
+Note: all source code changes must be made in `templates/ChemCoreApi.tpl.sql` and/or source code files under java or python directories, but every time these changes are finalized and are ready for a release, `tools/sql_udf_builder.py` must be run to produce a version of ChemCoreApi.sql that incorporates the latest changes and is ready for deployment.
 
 ## Acknowledgments
 
