@@ -4,6 +4,23 @@
 CREATE SCHEMA IF NOT EXISTS chem_api;
 USE schema chem_api;
 
+-- Chemical structure depiction UDF's ---------------------------
+
+CREATE OR REPLACE FUNCTION Draw_Molstring_Or_Molbinary2SVG(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, highlight_smarts VARCHAR DEFAULT NULL)
+     RETURNS VARCHAR
+     LANGUAGE PYTHON
+     IMMUTABLE
+     RUNTIME_VERSION = '3.11'
+     PACKAGES = ('rdkit')
+     HANDLER = 'molstring_or_molbinary_to_svg'
+     COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding (only one of molstring and molbinary can be not NULL) to its graphical representation in the SVG format. If highlight_smarts substructure pattern is specified, highlights matching atoms. Returns picture as varchar with the following MIME type: data:image/svg+xml;base64.'
+     AS
+$$
+-- @include python/Util.py
+-- @include python/Molstring_Or_Molbinary2SVG.py
+$$
+;
+
 
 -- Chemical structure conversion UDF's ---------------------------
 

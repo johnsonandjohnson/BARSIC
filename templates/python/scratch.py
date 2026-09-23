@@ -17,6 +17,7 @@ from rdkit.Chem.SaltRemover import InputFormat
 
 import Molstring_Or_Molbinary2Molstring as mbs
 import Molstring_Or_Molbinary2Molbinary as mbb
+import Molstring_Or_Molbinary2SVG as mbsvg
 
 # charged + imine
 enamine_mol1 = R"""
@@ -316,6 +317,12 @@ class Tests(unittest.TestCase):
 
         print('Done')
         pass
+
+    def test8(self):
+        s = 'CNCCN(C)CCCC(C(C)C)N1CC(C)(CCc2ccccc2O)C1.CC(=O)O.O=S(=O)(O)c1ccccc1.Cl'
+        res = mbsvg.molstring_or_molbinary_to_svg(s, None, 'CNCCN')
+        print(res)
+
 
 if __name__ == '__main__':
     unittest.main()
