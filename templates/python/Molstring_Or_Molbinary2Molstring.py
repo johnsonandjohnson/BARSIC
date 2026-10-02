@@ -18,13 +18,6 @@ except ImportError:
     pass
 
 
-# future work: auto-detect not only molfile/sdf and SMILES, but also other
-# encodings (InChi, etc.)
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
 class MolEnc(Enum):
     MOLBLOCK = auto()
     SMILES = auto()
@@ -110,21 +103,9 @@ def parse_options(option_str: str) -> M2MOptions:
                       smiles_kekule=args.smiles_kekule)
 
 
-@lru_cache(128)
-def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
-    if not molstring and not molbinary:
+def get_hashstring(s: Optional[str]) -> Optional[str]:
+    if not s:
         return None
-    if molstring and molbinary:
-        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
-    if molbinary:
-        m = Chem.Mol(molbinary)
-    else:
-        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
-    if m and m.GetNumAtoms() == 0:
-        return None
-    return m
-
-def get_hashstring(s: str) -> str:
     h = hashlib.sha1()
     h.update(s.encode())
     return h.hexdigest()
@@ -176,7 +157,8 @@ def mol_to_reg_layers(m: Optional[Chem.Mol]) -> Optional[dict]:
 
 @lru_cache(128)
 @safe_call_decorator
-def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+def _molstring_or_molbinary_to_molstring(molstring: Optional[str],
+                                                 molbinary: Optional[bytes], option_str: str) -> Optional[str]:
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -252,5 +234,5 @@ def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbi
 # need this extra layer because of the @lru_cache(128) and @safe_call_decorator used on the handler result in
 # Python Interpreter Error: AttributeError: 'functools._lru_cache_wrapper' object has no attribute '__code__' error
 def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
-    return molstring_or_molbinary_to_molstring_internal(molstring, molbinary, option_str)
+    return _molstring_or_molbinary_to_molstring(molstring, molbinary, option_str)
 

@@ -16,12 +16,6 @@ _prev_fp = None
 _fpg = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048,
                                                  atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen())
 
-    
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
 
 def molstring2morgan_fingerprint(molstring: Optional[str]) -> Optional[bytes]:
     global _prev_molstring

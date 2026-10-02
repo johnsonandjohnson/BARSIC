@@ -10,24 +10,6 @@ except ImportError:
     pass
 
 
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
-@lru_cache(128)
-def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
-    if not molstring and not molbinary:  # does it make sense to return molfile or SMILES strings representing empty molecules?
-        return None
-    if molstring and molbinary:
-        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
-    if molbinary:
-        m = Chem.Mol(molbinary)
-    else:
-        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
-    return m
-
-
 _rdkCommonMedchem = [
     'qed',
     'MolWt',

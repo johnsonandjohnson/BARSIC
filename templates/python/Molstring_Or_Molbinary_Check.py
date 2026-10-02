@@ -8,11 +8,6 @@ except ImportError:
     pass
 
 
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
 class MolChecker:
     @staticmethod
     def check_str(molstring: str, raise_exception: bool) -> tuple[bool|None, str|None, str|None]:

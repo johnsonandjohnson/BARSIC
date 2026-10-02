@@ -9,22 +9,6 @@ except ImportError:
     pass
 
 
-@lru_cache(maxsize=128)
-def get_pattern_mol(smarts: str) -> Optional[Chem.Mol]:
-    m = Chem.MolFromSmarts(smarts)
-    if not m:
-       raise ValueError(f'Error parsing SMARTS: {smarts}')
-    if m.GetNumAtoms() == 0:
-        return None
-    return m
-
-    
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
-    
 def molstring_matches_smarts(molstring: Optional[str], smarts: Optional[str], screen_pass: Optional[bool]) -> bool:
     if not screen_pass:
         return False

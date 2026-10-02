@@ -14,12 +14,6 @@ _prev_molstring = None
 _prev_fp = None
 
 
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
-
 def molstring2pattern_fingerprint(molstring: Optional[str]) -> Optional[bytes]:
     global _prev_molstring
     global _prev_fp

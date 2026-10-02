@@ -13,12 +13,6 @@ except ImportError:
     pass
 
 
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
-
 @dataclass
 class M2MOptions:
     desalt: bool
@@ -64,21 +58,6 @@ def parse_options(option_str: str) -> M2MOptions:
     return M2MOptions(desalt=args.desalt,
                       additional_desalt_patterns=args.desalt_smarts_list,
                       remove_stereo=args.remove_stereo)
-
-
-@lru_cache(128)
-def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
-    if not molstring and not molbinary:
-        return None
-    if molstring and molbinary:
-        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
-    if molbinary:
-        m = Chem.Mol(molbinary)
-    else:
-        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
-    if m and m.GetNumAtoms() == 0:
-        return None
-    return m
 
 
 @safe_call_decorator

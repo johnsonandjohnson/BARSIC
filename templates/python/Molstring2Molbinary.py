@@ -8,11 +8,6 @@ except ImportError:
     pass
 
 
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
 def molstring_to_binary(molstring: Optional[str])->Optional[bytes]:
     if molstring is None:
         return None
