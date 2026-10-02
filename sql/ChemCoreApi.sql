@@ -4,24 +4,46 @@
 CREATE SCHEMA IF NOT EXISTS chem_api;
 USE schema chem_api;
 
--- Chemical structure depiction UDF's ---------------------------
-
-CREATE OR REPLACE FUNCTION Draw_Molstring_Or_Molbinary2SVG(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, highlight_smarts VARCHAR DEFAULT NULL)
+-- Info --
+CREATE OR REPLACE FUNCTION Barsic_Info()
      RETURNS VARCHAR
      LANGUAGE PYTHON
      IMMUTABLE
-     RUNTIME_VERSION = '3.11'
+     RUNTIME_VERSION = '3.12'
+     PACKAGES = ('rdkit')
+     HANDLER = 'barsic_info'
+     COMMENT='Returns toolkit info'
+     AS
+$$
+import rdkit
+import sys
+
+def barsic_info() -> str:
+    return f'BARSIC 2.0, Python: {sys.version}, RDKit: {rdkit.__version__}'
+
+$$
+;
+
+-- Chemical structure depiction UDF's ---------------------------
+
+CREATE OR REPLACE FUNCTION Draw_Molstring_Or_Molbinary2SVG(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, highlight_smarts VARCHAR DEFAULT NULL, draw_options VARCHAR DEFAULT NULL, output_raw_xml BOOLEAN DEFAULT FALSE)
+     RETURNS VARCHAR
+     LANGUAGE PYTHON
+     IMMUTABLE
+     RUNTIME_VERSION = '3.12'
      PACKAGES = ('rdkit')
      HANDLER = 'molstring_or_molbinary_to_svg'
-     COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding (only one of molstring and molbinary can be not NULL) to its graphical representation in the SVG format. If highlight_smarts substructure pattern is specified, highlights matching atoms. Returns picture as varchar with the following MIME type: data:image/svg+xml;base64.'
+     COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding (only one of molstring and molbinary can be not NULL) to its graphical representation in the SVG format. If highlight_smarts substructure pattern is specified, highlights matching atoms. If output_raw_xml is FALSE, returns picture as varchar with the following MIME type: data:image/svg+xml;base64, otherwise, returns plain unencoded xml. draw_options arg is not used yet and is reserved for future use.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -33,46 +55,9 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
-@lru_cache(maxsize=128)
-def get_salt_remover(additional_patterns: str | None):
-    if not additional_patterns:
-        return SaltRemover.SaltRemover()
-    sr0 = SaltRemover.SaltRemover()
-    additional_patterns = additional_patterns.replace('|', '\n')
-    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
-    # hack
-    sr0.salts = sr0.salts + sr1.salts
-    return sr0
-
-import base64
-
-from rdkit import Chem
-from typing import Optional
-from functools import lru_cache
-
-from rdkit.Chem.Draw import rdMolDraw2D
-
-try:
-    from Util import *
-except ImportError:
-    # module is inlined, ignore the import error
-    pass
-
-
-@lru_cache(maxsize=128)
-def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
-    if not smarts:
-        return None
-    m = Chem.MolFromSmarts(smarts)
-    if not m:
-       raise ValueError(f'Error parsing SMARTS: {smarts}')
-    if m.GetNumAtoms() == 0:
-        return None
-    return m
-
 
 # todo: auto-detect not only molfile/sdf and SMILES, but also other
-# encodings (InChi, etc.). Also, move all these duplicate defs to Util.py
+# encodings (InChi, etc.).
 def is_molfile(molstring: Optional[str]) -> bool:
     if not molstring:
         return False
@@ -94,10 +79,49 @@ def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
     return m
 
 
-def mol_to_svg(mol: Chem.Mol | None, atoms_to_highlight: list | None) -> str | None:
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
+
+import base64
+
+from rdkit import Chem
+from typing import Optional
+
+from rdkit.Chem.Draw import rdMolDraw2D
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
+
+def mol_to_svg(mol: Chem.Mol | None, atoms_to_highlight: list | None, output_raw_xml: bool) -> str | None:
     if not mol:
         return None
     data = rdMolDraw2D.MolToSVG(mol, highlightAtoms=atoms_to_highlight)
+    if output_raw_xml:
+        return data
     # data:image/svg+xml;utf8,<svg xmlns=...</svg>
     # remove the first line, which looks like this: <?xml version='1.0' encoding='iso-8859-1'?>
     index = data.find('\n')
@@ -108,7 +132,8 @@ def mol_to_svg(mol: Chem.Mol | None, atoms_to_highlight: list | None) -> str | N
 
 
 def molstring_or_molbinary_to_svg(molstring: Optional[str], molbinary: Optional[bytes],
-                                  highlight_smarts: Optional[str]) -> Optional[str]:
+                                  highlight_smarts: Optional[str],
+                                  draw_options: Optional[str], output_raw_xml: bool) -> Optional[str]:
     m = getmol(molstring, molbinary)
     if not m:
         return None
@@ -117,29 +142,32 @@ def molstring_or_molbinary_to_svg(molstring: Optional[str], molbinary: Optional[
     if highlight_mol:
         matches = m.GetSubstructMatches(highlight_mol)
         atoms_to_highlight = [idx for match in matches for idx in match]
-    return mol_to_svg(m, atoms_to_highlight)
+    return mol_to_svg(m, atoms_to_highlight, output_raw_xml)
 $$
 ;
 
-
--- Chemical structure conversion UDF's ---------------------------
-
-CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Molstring(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, options VARCHAR DEFAULT '--out smiles')
-     RETURNS VARCHAR 
-     LANGUAGE PYTHON 
-     IMMUTABLE    
-     RUNTIME_VERSION = '3.11' 
+-- Note: the ARTIFACT_REPOSITORY points to pypi rather than snowflake Anaconda.
+-- This is because Anaconda RDKit is built w/o Cairo 2d graphics support.
+-- Should we use snowflake.snowpark.pypi_shared_repository in all UDF's with Python handlers?
+CREATE OR REPLACE FUNCTION Draw_Molstring_Or_Molbinary2PNG(width_px INT, height_px INT, molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, highlight_smarts VARCHAR DEFAULT NULL, draw_options VARCHAR DEFAULT NULL)
+     RETURNS VARBINARY
+     LANGUAGE PYTHON
+     IMMUTABLE
+     RUNTIME_VERSION = '3.12'
+     ARTIFACT_REPOSITORY = snowflake.snowpark.pypi_shared_repository
      PACKAGES = ('rdkit')
-     HANDLER = 'molstring_or_molbinary_to_molstring'
-     COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding to a variety of different string-based formats, optionally transforming the input structure. Only one of molstring or molbinary arguments can be non-NULL. All available options can be listed by by running the following SQL: select Molstring_Or_Molbinary2Molstring(NULL, NULL, ''-h''); usage info will be returned as part of the error message. If the options argument value is not specified, computes canonical ChemAxon-compatible extended SMILES.'
+     HANDLER = 'molstring_or_molbinary_to_png'
+     COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding (only one of molstring and molbinary can be not NULL) to its graphical representation in the PNG format (width_px x height_px is the image size in pixels). If highlight_smarts substructure pattern is specified, highlights matching atoms. draw_options arg is not used yet and is reserved for future use.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -151,6 +179,30 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
+
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
     if not additional_patterns:
@@ -161,6 +213,134 @@ def get_salt_remover(additional_patterns: str | None):
     # hack
     sr0.salts = sr0.salts + sr1.salts
     return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
+
+import io
+import rdkit
+from rdkit import Chem
+from rdkit.Chem import Draw
+
+try:
+    from Util import *
+except ImportError:
+    # module is inlined, ignore the import error
+    pass
+
+def mol_to_png(mol: Chem.Mol | None, width_px: int, height_px: int, atoms_to_highlight: list | None) -> bytes | None:
+    if not mol:
+        return None
+    pil_image = rdkit.Chem.Draw.MolToImage(mol, size=(width_px, height_px), highlightAtoms=atoms_to_highlight)
+    with io.BytesIO() as buffer:
+        pil_image.save(buffer, 'png')
+        return buffer.getvalue()
+
+
+def molstring_or_molbinary_to_png(width_px: int, height_px: int,
+                                  molstring: Optional[str], molbinary: Optional[bytes],
+                                  highlight_smarts: Optional[str],
+                                  draw_options: Optional[str]) -> Optional[bytes]:
+    if width_px <= 0 or height_px <= 0:
+        raise ValueError('width_px and height_px must be > 0')
+    m = getmol(molstring, molbinary)
+    if not m:
+        return None
+    highlight_mol = get_pattern_mol(highlight_smarts)
+    atoms_to_highlight = None
+    if highlight_mol:
+        matches = m.GetSubstructMatches(highlight_mol)
+        atoms_to_highlight = [idx for match in matches for idx in match]
+    return mol_to_png(m, width_px, height_px, atoms_to_highlight)
+$$
+;
+
+-- Chemical structure conversion UDF's ---------------------------
+
+CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Molstring(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, options VARCHAR DEFAULT '--out smiles')
+     RETURNS VARCHAR 
+     LANGUAGE PYTHON 
+     IMMUTABLE    
+     RUNTIME_VERSION = '3.12' 
+     PACKAGES = ('rdkit')
+     HANDLER = 'molstring_or_molbinary_to_molstring'
+     COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding to a variety of different string-based formats, optionally transforming the input structure. Only one of molstring or molbinary arguments can be non-NULL. All available options can be listed by by running the following SQL: select Molstring_Or_Molbinary2Molstring(NULL, NULL, ''-h''); usage info will be returned as part of the error message. If the options argument value is not specified, computes canonical ChemAxon-compatible extended SMILES.'
+     AS
+$$
+from functools import lru_cache
+from typing import Callable, Optional
+
+from rdkit import Chem
+from rdkit.Chem.SaltRemover import InputFormat
+from rdkit.Chem.rdchem import MolSanitizeException
+from rdkit.Chem import SaltRemover
+
+
+def safe_call_decorator(func: Callable):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except MolSanitizeException:
+            return None
+        except RuntimeError:
+            return None
+    return wrapper
+
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
+
+@lru_cache(maxsize=128)
+def get_salt_remover(additional_patterns: str | None):
+    if not additional_patterns:
+        return SaltRemover.SaltRemover()
+    sr0 = SaltRemover.SaltRemover()
+    additional_patterns = additional_patterns.replace('|', '\n')
+    sr1 = SaltRemover.SaltRemover(defnData=additional_patterns, defnFormat=InputFormat.SMARTS)
+    # hack
+    sr0.salts = sr0.salts + sr1.salts
+    return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
 
 import enum
 import sys
@@ -181,13 +361,6 @@ except ImportError:
     # module is inlined, ignore the import error
     pass
 
-
-# future work: auto-detect not only molfile/sdf and SMILES, but also other
-# encodings (InChi, etc.)
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
 
 class MolEnc(Enum):
     MOLBLOCK = auto()
@@ -274,21 +447,9 @@ def parse_options(option_str: str) -> M2MOptions:
                       smiles_kekule=args.smiles_kekule)
 
 
-@lru_cache(128)
-def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
-    if not molstring and not molbinary:
+def get_hashstring(s: Optional[str]) -> Optional[str]:
+    if not s:
         return None
-    if molstring and molbinary:
-        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
-    if molbinary:
-        m = Chem.Mol(molbinary)
-    else:
-        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
-    if m and m.GetNumAtoms() == 0:
-        return None
-    return m
-
-def get_hashstring(s: str) -> str:
     h = hashlib.sha1()
     h.update(s.encode())
     return h.hexdigest()
@@ -340,7 +501,8 @@ def mol_to_reg_layers(m: Optional[Chem.Mol]) -> Optional[dict]:
 
 @lru_cache(128)
 @safe_call_decorator
-def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
+def _molstring_or_molbinary_to_molstring(molstring: Optional[str],
+                                                 molbinary: Optional[bytes], option_str: str) -> Optional[str]:
     # parse options first and show usage help if option_str has --help or -h flags
     opt = parse_options(option_str)
     m = getmol(molstring, molbinary)
@@ -416,7 +578,7 @@ def molstring_or_molbinary_to_molstring_internal(molstring: Optional[str], molbi
 # need this extra layer because of the @lru_cache(128) and @safe_call_decorator used on the handler result in
 # Python Interpreter Error: AttributeError: 'functools._lru_cache_wrapper' object has no attribute '__code__' error
 def molstring_or_molbinary_to_molstring(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
-    return molstring_or_molbinary_to_molstring_internal(molstring, molbinary, option_str)
+    return _molstring_or_molbinary_to_molstring(molstring, molbinary, option_str)
 
 $$
 ;
@@ -426,18 +588,20 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Molbinary(molstring VARCHAR DE
      RETURNS VARBINARY 
      LANGUAGE PYTHON 
      IMMUTABLE    
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'molstring_or_molbinary_to_molbinary'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding to the RDKit binary molecule encoding, optionally transforming the input structure. Only one of molstring or molbinary arguments can be non-NULL. All available options can be listed by by running the following SQL: select Molstring_Or_Molbinary2Molbinary(NULL, NULL, ''-h''); usage info will be returned as part of the error message. To convert molstrings to RDKit binary molecule encoding w/o applying any transforms, use the Molstring2Molbinary function, which has fewer arguments and is faster.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -449,6 +613,30 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
+
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
     if not additional_patterns:
@@ -459,6 +647,18 @@ def get_salt_remover(additional_patterns: str | None):
     # hack
     sr0.salts = sr0.salts + sr1.salts
     return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
 
 import sys
 from dataclasses import dataclass
@@ -473,12 +673,6 @@ try:
 except ImportError:
     # module is inlined, ignore the import error
     pass
-
-
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
 
 
 @dataclass
@@ -528,21 +722,6 @@ def parse_options(option_str: str) -> M2MOptions:
                       remove_stereo=args.remove_stereo)
 
 
-@lru_cache(128)
-def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
-    if not molstring and not molbinary:
-        return None
-    if molstring and molbinary:
-        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
-    if molbinary:
-        m = Chem.Mol(molbinary)
-    else:
-        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
-    if m and m.GetNumAtoms() == 0:
-        return None
-    return m
-
-
 @safe_call_decorator
 def molstring_or_molbinary_to_molbinary(molstring: Optional[str], molbinary: Optional[bytes], option_str: str):
     # parse options first and show usage help if option_str has --help or -h flags
@@ -585,18 +764,20 @@ CREATE OR REPLACE FUNCTION Molstring2Molbinary(molstring VARCHAR)
      LANGUAGE PYTHON 
      RETURNS NULL ON NULL INPUT
      IMMUTABLE    
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'molstring_to_binary'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit binary molecule encoding. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -607,6 +788,30 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
 
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
@@ -619,6 +824,18 @@ def get_salt_remover(additional_patterns: str | None):
     sr0.salts = sr0.salts + sr1.salts
     return sr0
 
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
+
 from rdkit import Chem
 from typing import Optional
 
@@ -628,11 +845,6 @@ except ImportError:
     # module is inlined, ignore the import error
     pass
 
-
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
 
 def molstring_to_binary(molstring: Optional[str])->Optional[bytes]:
     if molstring is None:
@@ -657,18 +869,20 @@ CREATE OR REPLACE FUNCTION Molstring2Pattern_Fingerprint(molstring VARCHAR)
      LANGUAGE PYTHON 
      RETURNS NULL ON NULL INPUT
      IMMUTABLE
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'molstring2pattern_fingerprint'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -680,6 +894,30 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
+
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
     if not additional_patterns:
@@ -690,6 +928,18 @@ def get_salt_remover(additional_patterns: str | None):
     # hack
     sr0.salts = sr0.salts + sr1.salts
     return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
 
 from rdkit import Chem, DataStructs
 from typing import Optional
@@ -705,12 +955,6 @@ except ImportError:
 _lck = threading.RLock()
 _prev_molstring = None
 _prev_fp = None
-
-
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
 
 
 def molstring2pattern_fingerprint(molstring: Optional[str]) -> Optional[bytes]:
@@ -738,18 +982,20 @@ CREATE OR REPLACE FUNCTION Molbinary2Pattern_Fingerprint(molbinary VARBINARY)
      LANGUAGE PYTHON 
      RETURNS NULL ON NULL INPUT
      IMMUTABLE
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'molbinary2pattern_fingerprint'
      COMMENT='Converts RDKit binary-encoded molecule to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if molbinary is NULL, empty or represents an empty molecule with 0 atoms and 0 bonds. Returns error if molbinary is not a valid RDKit binary-encoded molecule.'     
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -761,6 +1007,30 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
+
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
     if not additional_patterns:
@@ -771,6 +1041,18 @@ def get_salt_remover(additional_patterns: str | None):
     # hack
     sr0.salts = sr0.salts + sr1.salts
     return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
 
 from rdkit import Chem, DataStructs
 from typing import Optional
@@ -814,18 +1096,20 @@ CREATE OR REPLACE FUNCTION Smarts2Pattern_Fingerprint(smarts VARCHAR)
      LANGUAGE PYTHON 
      RETURNS NULL ON NULL INPUT
      IMMUTABLE
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'smarts2pattern_fingerprint'
      COMMENT='Converts SMARTS substructure pattern to RDKit substructure pattern fingerprint commonly used for fingerprint-based screening to speed up substructure searches. Returns NULL if smarts is NULL, empty, or represents an empty molecule with 0 atoms and 0 bonds. Returns error if smarts is invalid and cannot be parsed.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -837,6 +1121,30 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
+
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
     if not additional_patterns:
@@ -847,6 +1155,18 @@ def get_salt_remover(additional_patterns: str | None):
     # hack
     sr0.salts = sr0.salts + sr1.salts
     return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
 
 from rdkit import Chem, DataStructs
 from typing import Optional
@@ -892,18 +1212,20 @@ CREATE OR REPLACE FUNCTION Molstring2Morgan_Fingerprint(molstring VARCHAR)
      LANGUAGE PYTHON 
      RETURNS NULL ON NULL INPUT
      IMMUTABLE
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'molstring2morgan_fingerprint'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) to RDKit Morgan fingerprint commonly used for fingerprint-based similarity search. Returns NULL if molstring is NULL, empty, invalid, or represents an empty molecule with 0 atoms and 0 bonds. Generator options: radius=2, fpSize=2048, atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen()'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -915,6 +1237,30 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
+
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
     if not additional_patterns:
@@ -925,6 +1271,18 @@ def get_salt_remover(additional_patterns: str | None):
     # hack
     sr0.salts = sr0.salts + sr1.salts
     return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
 
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
@@ -943,12 +1301,6 @@ _prev_molstring = None
 _prev_fp = None
 _fpg = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048,
                                                  atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen())
-
-    
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
 
 
 def molstring2morgan_fingerprint(molstring: Optional[str]) -> Optional[bytes]:
@@ -976,18 +1328,20 @@ CREATE OR REPLACE FUNCTION Molbinary2Morgan_Fingerprint(molbinary VARBINARY)
      LANGUAGE PYTHON 
      RETURNS NULL ON NULL INPUT
      IMMUTABLE
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'molbinary2morgan_fingerprint'
      COMMENT='Converts RDKit binary-encoded molecule to RDKit Morgan fingerprint commonly used for fingerprint-based similarity search. Returns NULL if molbinary is NULL or empty, or represents an empty molecule with 0 atoms and 0 bonds. Generator options: radius=2, fpSize=2048, atomInvariantsGenerator=rdFingerprintGenerator.GetMorganFeatureAtomInvGen(). Returns error if molbinary is not a valid RDKit binary-encoded molecule.'          
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -999,6 +1353,30 @@ def safe_call_decorator(func: Callable):
             return None
     return wrapper
 
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
+
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
     if not additional_patterns:
@@ -1009,6 +1387,18 @@ def get_salt_remover(additional_patterns: str | None):
     # hack
     sr0.salts = sr0.salts + sr1.salts
     return sr0
+
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
 
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
@@ -1055,18 +1445,20 @@ CREATE OR REPLACE FUNCTION Molbinary_Matches_Smarts(molbinary VARBINARY, smarts 
      LANGUAGE PYTHON 
      RETURNS NULL ON NULL INPUT
      IMMUTABLE    
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'molbinary_matches_smarts'
      COMMENT='Tests whether RDKit binary-encoded molecule matches the specified SMARTS pattern and returns TRUE iff it does and the screen_pass argument value is TRUE. The extra screen_pass argument is used for substructure query optimization based on fingerprint screening (see examples in the documentation and example workbooks). Returns NULL if any of the args are NULL. Returns error if molbinary is not a valid RDKit binary-encoded molecule of if smarts is invalid and cannot be parsed. Note: an empty SMARTS will not match any molecule, even an empty one. This seems to be illogical, since, in theory, a subgraph with 0 nodes and 0 edges must match any graph (or, at least, an empty one), but, in practice, this approach leads to fewer problems than the theoretically correct one. In RDKit itself, a molecule representing an empty pattern does not match anything either.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -1077,6 +1469,30 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
 
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
@@ -1089,9 +1505,20 @@ def get_salt_remover(additional_patterns: str | None):
     sr0.salts = sr0.salts + sr1.salts
     return sr0
 
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
+
 from rdkit import Chem
 from typing import Optional
-from functools import lru_cache
 
 try:
     from Util import *
@@ -1099,15 +1526,6 @@ except ImportError:
     # module is inlined, ignore the import error
     pass
 
-
-@lru_cache(maxsize=128)
-def get_pattern_mol(smarts: str) -> Optional[Chem.Mol]:
-    m = Chem.MolFromSmarts(smarts)
-    if not m:
-       raise ValueError(f'Error parsing SMARTS: {smarts}')
-    if m.GetNumAtoms() == 0:
-        return None
-    return m
 
 def molbinary_matches_smarts(molbinary: Optional[bytes], smarts: Optional[str], screen_pass: Optional[bool]) -> bool:
     if not screen_pass:
@@ -1130,18 +1548,20 @@ CREATE OR REPLACE FUNCTION Molstring_Matches_Smarts(molstring VARCHAR, smarts VA
      LANGUAGE PYTHON 
      RETURNS NULL ON NULL INPUT
      IMMUTABLE    
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'molstring_matches_smarts'
      COMMENT='Tests whether the molecule encoded as molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) matches the specified SMARTS pattern and returns TRUE iff it does and the screen_pass argument value is TRUE. The extra screen_pass argument is used for substructure query optimization based on fingerprint screening (see examples in the documentation and example workbooks). Returns NULL if any of the args are NULL. Returns FALSE if molstring is not a valid SMILES or molblock. Returns error if smarts is invalid and cannot be parsed. Note: an empty SMARTS will not match any molecule, even an empty one. This seems to be illogical, since, in theory, a subgraph with 0 nodes and 0 edges must match any graph (or, at least, an empty one), but, in practice, this approach leads to fewer problems than the theoretically correct one. In RDKit itself, a molecule representing an empty pattern does not match anything either.'     
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -1152,6 +1572,30 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
 
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
@@ -1164,6 +1608,18 @@ def get_salt_remover(additional_patterns: str | None):
     sr0.salts = sr0.salts + sr1.salts
     return sr0
 
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
+
 from rdkit import Chem
 from typing import Optional
 from functools import lru_cache
@@ -1175,22 +1631,6 @@ except ImportError:
     pass
 
 
-@lru_cache(maxsize=128)
-def get_pattern_mol(smarts: str) -> Optional[Chem.Mol]:
-    m = Chem.MolFromSmarts(smarts)
-    if not m:
-       raise ValueError(f'Error parsing SMARTS: {smarts}')
-    if m.GetNumAtoms() == 0:
-        return None
-    return m
-
-    
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
-    
 def molstring_matches_smarts(molstring: Optional[str], smarts: Optional[str], screen_pass: Optional[bool]) -> bool:
     if not screen_pass:
         return False
@@ -1218,7 +1658,7 @@ $$
 --     LANGUAGE PYTHON
 --     RETURNS NULL ON NULL INPUT
 --     IMMUTABLE
---     RUNTIME_VERSION = '3.11'
+--     RUNTIME_VERSION = '3.12'
 --     PACKAGES = ('bitarray==2.5.1')  -- note: the latest version in Snowflake (3.4.2 as of now) seems to be broken!
 --     HANDLER = 'tanimoto'
 --     COMMENT='Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
@@ -1335,18 +1775,20 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Medchem_Descriptors(molstring 
      RETURNS TABLE (Q_Estim_Drug_Likeness float, Mol_Wt float, Heavy_Atom_Mol_Wt float, Exact_Mol_Wt float, Num_Valence_Electrons int, Num_Radical_Electrons int, Max_Partial_Charge float, Min_Partial_Charge float, Max_Abs_Partial_Charge float, Min_Abs_Partial_Charge float, TPSA float, Fraction_CSP3 float, Heavy_Atom_Count int, Num_Aliphatic_Carbocycles int, Num_Aliphatic_Heterocycles int, Num_Aliphatic_Rings int, Num_Aromatic_Carbocycles int, Num_Aromatic_Heterocycles int, Num_Aromatic_Rings int, Num_HAcceptors int, Num_HDonors int, Num_Heteroatoms int, Num_Rotatable_Bonds int, Num_Saturated_Carbocycles int, Num_Saturated_Heterocycles int, Num_Saturated_Rings int, Ring_Count int, Mol_Log_P float, Mol_MR float)
      LANGUAGE PYTHON
      IMMUTABLE
-     RUNTIME_VERSION = '3.11'
+     RUNTIME_VERSION = '3.12'
      PACKAGES = ('rdkit')
      HANDLER = 'DGen'
      COMMENT='Computes commonly used medchem properties (descriptors) for a molecule encoded as molstring (standard or ChemAxon SMILES or molfile/molblock) or as RDKit binary-encoded molecule. Only one of molstring or molbinary arguments can be non-NULL, otherwise, an error will be returned. Returns a table with one row and multiple columns corresponding to the computed descriptors. If molstring and molbinary are both NULLs, or molstring is invalid and cannot be parsed, returns a table with one row filled with NULLs. Returns an error if molbinary is not a valid RDKit binary-encoded molecule.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -1357,6 +1799,30 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
 
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
@@ -1369,6 +1835,18 @@ def get_salt_remover(additional_patterns: str | None):
     sr0.salts = sr0.salts + sr1.salts
     return sr0
 
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
+
 from functools import lru_cache
 from rdkit import Chem
 from rdkit.ML.Descriptors import MoleculeDescriptors
@@ -1379,24 +1857,6 @@ try:
 except ImportError:
     # module is inlined, ignore the import error
     pass
-
-
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
-
-@lru_cache(128)
-def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
-    if not molstring and not molbinary:  # does it make sense to return molfile or SMILES strings representing empty molecules?
-        return None
-    if molstring and molbinary:
-        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
-    if molbinary:
-        m = Chem.Mol(molbinary)
-    else:
-        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
-    return m
 
 
 _rdkCommonMedchem = [
@@ -1448,18 +1908,20 @@ CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary_Check(molstring VARCHAR DEFAUL
      RETURNS TABLE (is_ok boolean, encoding varchar, error_msg varchar) 
      LANGUAGE PYTHON 
      IMMUTABLE    
-     RUNTIME_VERSION = '3.11' 
+     RUNTIME_VERSION = '3.12' 
      PACKAGES = ('rdkit')
      HANDLER = 'MolChecker'
      COMMENT='Checks a molecule encoded as molstring (standard or ChemAxon SMILES or molfile/molblock) or as RDKit binary-encoded molecule. Only one of molstring or molbinary arguments can be non-NULL, otherwise, an error will be returned. Returns a table with one row and three columns: is_ok boolean, encoding varchar, and error_msg varchar. If both molstring and molbinary are NULL, the entire result row will be filled with NULLs. Otherwise, is_ok will contain True iff the input can be parsed into a molecule with no errors, encoding will contain a string representation of the encoding (MOLBLOCK, SMILES, or BINARY), and the error_msg will contain a description of the error or NULL. If raise_exception parameter is TRUE (it is FALSE by default) and the input cannot be parsed into a valid molecule, the method will raise an exception and quit instead of returning.'
      AS
 $$
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Optional
 
+from rdkit import Chem
 from rdkit.Chem.SaltRemover import InputFormat
 from rdkit.Chem.rdchem import MolSanitizeException
 from rdkit.Chem import SaltRemover
+
 
 def safe_call_decorator(func: Callable):
     def wrapper(*args, **kwargs):
@@ -1470,6 +1932,30 @@ def safe_call_decorator(func: Callable):
         except RuntimeError:
             return None
     return wrapper
+
+
+# todo: auto-detect not only molfile/sdf and SMILES, but also other
+# encodings (InChi, etc.).
+def is_molfile(molstring: Optional[str]) -> bool:
+    if not molstring:
+        return False
+    return '\n' in molstring
+
+
+@lru_cache(128)
+def getmol(molstring: Optional[str], molbinary: Optional[bytes]):
+    if not molstring and not molbinary:
+        return None
+    if molstring and molbinary:
+        raise ValueError('Either molstring or molbinary can be not NULL, but not both')
+    if molbinary:
+        m = Chem.Mol(molbinary)
+    else:
+        m = Chem.MolFromMolBlock(molstring) if is_molfile(molstring) else Chem.MolFromSmiles(molstring)
+    if m and m.GetNumAtoms() == 0:
+        return None
+    return m
+
 
 @lru_cache(maxsize=128)
 def get_salt_remover(additional_patterns: str | None):
@@ -1482,6 +1968,18 @@ def get_salt_remover(additional_patterns: str | None):
     sr0.salts = sr0.salts + sr1.salts
     return sr0
 
+
+@lru_cache(maxsize=128)
+def get_pattern_mol(smarts: Optional[str]) -> Optional[Chem.Mol]:
+    if not smarts:
+        return None
+    m = Chem.MolFromSmarts(smarts)
+    if not m:
+       raise ValueError(f'Error parsing SMARTS: {smarts}')
+    if m.GetNumAtoms() == 0:
+        return None
+    return m
+
 from rdkit import Chem
 from typing import Optional
 
@@ -1491,11 +1989,6 @@ except ImportError:
     # module is inlined, ignore the import error
     pass
 
-
-def is_molfile(molstring: Optional[str]) -> bool:
-    if not molstring:
-        return False
-    return '\n' in molstring
 
 class MolChecker:
     @staticmethod

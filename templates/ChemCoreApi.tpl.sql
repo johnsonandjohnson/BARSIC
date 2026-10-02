@@ -4,6 +4,21 @@
 CREATE SCHEMA IF NOT EXISTS chem_api;
 USE schema chem_api;
 
+-- Info --
+CREATE OR REPLACE FUNCTION Barsic_Info()
+     RETURNS VARCHAR
+     LANGUAGE PYTHON
+     IMMUTABLE
+     RUNTIME_VERSION = '3.12'
+     PACKAGES = ('rdkit')
+     HANDLER = 'barsic_info'
+     COMMENT='Returns toolkit info'
+     AS
+$$
+-- @include python/Barsic_Info.py
+$$
+;
+
 -- Chemical structure depiction UDF's ---------------------------
 
 CREATE OR REPLACE FUNCTION Draw_Molstring_Or_Molbinary2SVG(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, highlight_smarts VARCHAR DEFAULT NULL, draw_options VARCHAR DEFAULT NULL, output_raw_xml BOOLEAN DEFAULT FALSE)
@@ -21,11 +36,15 @@ $$
 $$
 ;
 
+-- Note: the ARTIFACT_REPOSITORY points to pypi rather than snowflake Anaconda.
+-- This is because Anaconda RDKit is built w/o Cairo 2d graphics support.
+-- Should we use snowflake.snowpark.pypi_shared_repository in all UDF's with Python handlers?
 CREATE OR REPLACE FUNCTION Draw_Molstring_Or_Molbinary2PNG(width_px INT, height_px INT, molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, highlight_smarts VARCHAR DEFAULT NULL, draw_options VARCHAR DEFAULT NULL)
      RETURNS VARBINARY
      LANGUAGE PYTHON
      IMMUTABLE
      RUNTIME_VERSION = '3.12'
+     ARTIFACT_REPOSITORY = snowflake.snowpark.pypi_shared_repository
      PACKAGES = ('rdkit')
      HANDLER = 'molstring_or_molbinary_to_png'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding (only one of molstring and molbinary can be not NULL) to its graphical representation in the PNG format (width_px x height_px is the image size in pixels). If highlight_smarts substructure pattern is specified, highlights matching atoms. draw_options arg is not used yet and is reserved for future use.'

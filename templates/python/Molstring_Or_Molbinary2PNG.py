@@ -1,5 +1,7 @@
 import io
+import rdkit
 from rdkit import Chem
+from rdkit.Chem import Draw
 
 try:
     from Util import *
@@ -10,7 +12,7 @@ except ImportError:
 def mol_to_png(mol: Chem.Mol | None, width_px: int, height_px: int, atoms_to_highlight: list | None) -> bytes | None:
     if not mol:
         return None
-    pil_image = Chem.Draw.MolToImage(mol, size=(width_px, height_px), highlightAtoms=atoms_to_highlight)
+    pil_image = rdkit.Chem.Draw.MolToImage(mol, size=(width_px, height_px), highlightAtoms=atoms_to_highlight)
     with io.BytesIO() as buffer:
         pil_image.save(buffer, 'png')
         return buffer.getvalue()

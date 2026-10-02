@@ -19,6 +19,7 @@ import Molstring_Or_Molbinary2Molstring as mbs
 import Molstring_Or_Molbinary2Molbinary as mbb
 import Molstring_Or_Molbinary2SVG as mbsvg
 import Molstring_Or_Molbinary2PNG as mbpng
+import Barsic_Info as bi
 
 # charged + imine
 enamine_mol1 = R"""
@@ -332,6 +333,9 @@ class Tests(unittest.TestCase):
         res = mbpng.molstring_or_molbinary_to_png( 250, 250, s, None,'CNCCN', None)
         print(res)
 
+    def test10(self):
+        info = bi.barsic_info()
+        print(info)
 
 if __name__ == '__main__':
     unittest.main()
