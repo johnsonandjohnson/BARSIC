@@ -31,6 +31,7 @@ CREATE OR REPLACE FUNCTION Draw_Molstring_Or_Molbinary2SVG(molstring VARCHAR DEF
      LANGUAGE PYTHON
      IMMUTABLE
      RUNTIME_VERSION = '3.12'
+     ARTIFACT_REPOSITORY = snowflake.snowpark.pypi_shared_repository
      PACKAGES = ('rdkit')
      HANDLER = 'molstring_or_molbinary_to_svg'
      COMMENT='Converts molstring (standard or ChemAxon-extended SMILES or molblock/molfile, auto-detected) or RDKit binary molecule encoding (only one of molstring and molbinary can be not NULL) to its graphical representation in the SVG format. If highlight_smarts substructure pattern is specified, highlights matching atoms. If output_raw_xml is FALSE, returns picture as varchar with the following MIME type: data:image/svg+xml;base64, otherwise, returns plain unencoded xml. draw_options arg is not used yet and is reserved for future use.'
@@ -119,7 +120,7 @@ except ImportError:
 def mol_to_svg(mol: Chem.Mol | None, atoms_to_highlight: list | None, output_raw_xml: bool) -> str | None:
     if not mol:
         return None
-    data = rdMolDraw2D.MolToSVG(mol, highlightAtoms=atoms_to_highlight)
+    data = rdMolDraw2D.MolToSVG(mol, highlightAtoms=atoms_to_highlight, wedgeBonds=True)
     if output_raw_xml:
         return data
     # data:image/svg+xml;utf8,<svg xmlns=...</svg>

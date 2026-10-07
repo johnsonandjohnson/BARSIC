@@ -1,5 +1,6 @@
 import base64
 
+import rdkit
 from rdkit import Chem
 from typing import Optional
 
@@ -15,7 +16,7 @@ except ImportError:
 def mol_to_svg(mol: Chem.Mol | None, atoms_to_highlight: list | None, output_raw_xml: bool) -> str | None:
     if not mol:
         return None
-    data = rdMolDraw2D.MolToSVG(mol, highlightAtoms=atoms_to_highlight)
+    data = rdkit.Chem.Draw.MolToSVG(mol, kekulize=False, wedgeBonds=True, highlightAtoms=atoms_to_highlight)
     if output_raw_xml:
         return data
     # data:image/svg+xml;utf8,<svg xmlns=...</svg>

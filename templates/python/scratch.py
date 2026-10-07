@@ -322,9 +322,9 @@ class Tests(unittest.TestCase):
 
     def test8(self):
         s = 'CNCCN(C)CCCC(C(C)C)N1CC(C)(CCc2ccccc2O)C1.CC(=O)O.O=S(=O)(O)c1ccccc1.Cl'
-        res = mbsvg.molstring_or_molbinary_to_svg(s, None, 'CNCCN', False)
+        res = mbsvg.molstring_or_molbinary_to_svg(s, None, 'CNCCN', None,False)
         print(res)
-        res = mbsvg.molstring_or_molbinary_to_svg(s, None, 'CNCCN', True)
+        res = mbsvg.molstring_or_molbinary_to_svg(s, None, 'CNCCN', None, True)
         print(res)
 
 
@@ -336,6 +336,13 @@ class Tests(unittest.TestCase):
     def test10(self):
         info = bi.barsic_info()
         print(info)
+
+
+    def test11(self):
+        s = 'C[C@@H](CN)c1ccccc1'
+        res = mbsvg.molstring_or_molbinary_to_svg(s, None, 'CNCCN', None, False)
+        print(res)
+
 
 if __name__ == '__main__':
     unittest.main()
