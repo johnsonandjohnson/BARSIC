@@ -24,7 +24,7 @@ class Tanimoto
     
         if (nA + nB - nIntersection == 0) 
         {
-            return 1.0; // Avoid division by zero if both sets are empty. Consider them identical.
+            return 0.0; // Avoid division by zero if both sets are empty.
         }
     
         return (double) nIntersection / (nA + nB - nIntersection);
