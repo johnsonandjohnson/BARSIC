@@ -271,8 +271,8 @@ $$
 $$
 ;
 
--- This implementation relies on the updated implementation of the built-in BITCOUNT function,
--- which can correctly handle VARBINARY arguments and is available in Snowflake update bundle 2026_07
+-- This implementation relies on the version of the built-in BITCOUNT function
+-- that can correctly handle VARBINARY arguments and is available in Snowflake update bundle 2026_07
 CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
      RETURNS FLOAT
      STRICT -- synonym for RETURNS NULL ON NULL INPUT
