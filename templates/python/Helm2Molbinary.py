@@ -24,7 +24,7 @@ def mol_from_molfile_str(ms: str) -> Chem.Mol | None:
 
 def main(session: Session, monomer_table: str, helm_table: str) -> DataFrame:
     df = session.table(monomer_table)
-    # Obviously, it is assumed that monomer_table has a column called MOLFILE
+    # Obviously, it is assumed that monomer_table has a column called MOLFILE,
     # and it contains SDF strings with the correct data fields
     molfiles = (row['MOLFILE'] for row in df.select('MOLFILE').collect())
     mols = (mol_from_molfile_str(mf) for mf in molfiles)
