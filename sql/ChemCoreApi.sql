@@ -4,7 +4,7 @@
 CREATE SCHEMA IF NOT EXISTS chem_api;
 USE schema chem_api;
 
--- Info --
+-- Category: Info
 CREATE OR REPLACE FUNCTION Barsic_Info()
      RETURNS VARCHAR
      LANGUAGE PYTHON
@@ -30,7 +30,7 @@ def barsic_info() -> str:
 $$
 ;
 
--- Chemical structure depiction UDF's ---------------------------
+-- Category: Chemical structure depiction
 
 CREATE OR REPLACE FUNCTION Draw_Molstring_Or_Molbinary2SVG(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, highlight_smarts VARCHAR DEFAULT NULL, draw_options VARCHAR DEFAULT NULL, output_raw_xml BOOLEAN DEFAULT FALSE)
      RETURNS VARCHAR
@@ -274,7 +274,7 @@ def molstring_or_molbinary_to_png(width_px: int, height_px: int,
 $$
 ;
 
--- Chemical structure conversion UDF's ---------------------------
+-- Category: Chemical structure conversion
 
 CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Molstring(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, options VARCHAR DEFAULT '--out smiles')
      RETURNS VARCHAR 
@@ -896,9 +896,7 @@ def molstring_to_binary(molstring: Optional[str])->Optional[bytes]:
 $$
 ;
 
--- Fingerprinting UDF's ---------------------------
-
--- Fingerprints for substructure screening --------
+-- Category: Fingerprinting
 
 CREATE OR REPLACE FUNCTION Molstring2Pattern_Fingerprint(molstring VARCHAR)
      RETURNS VARBINARY 
@@ -1249,9 +1247,6 @@ def smarts2pattern_fingerprint(smarts: Optional[str]) -> Optional[bytes]:
 $$
 ;
 
-
--- Fingerprints for similarity search
-
 CREATE OR REPLACE FUNCTION Molstring2Morgan_Fingerprint(molstring VARCHAR)
      RETURNS VARBINARY 
      LANGUAGE PYTHON 
@@ -1489,7 +1484,7 @@ $$
 ;
 
 
--- Substructure matching UDF's ---------------------------
+-- Category: Substructure matching
 
 CREATE OR REPLACE FUNCTION Molbinary_Matches_Smarts(molbinary VARBINARY, smarts VARCHAR, screen_pass BOOLEAN)
      RETURNS BOOLEAN 
@@ -1704,26 +1699,39 @@ $$
 ;
 
 
--- Similarity search UDF's ---------------------------
+-- Category: Structure similarity
 
--- NOTE: due to problems with the bitarray package, this function is currently not used.
--- ChemCoreApi.tpl.sql defines two functions, Tanimoto and Tanimoto_J,
--- the first one's handler is implemented in SQL, and the second one's in Java.
-
---CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
---     RETURNS FLOAT
---     LANGUAGE PYTHON
---     RETURNS NULL ON NULL INPUT
---     IMMUTABLE
---     RUNTIME_VERSION = '3.12'
---     PACKAGES = ('bitarray==2.5.1')  -- note: the latest version in Snowflake (3.4.2 as of now) seems to be broken!
---     HANDLER = 'tanimoto'
---     COMMENT='Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
---     AS
---$$
--- -- @donotinclude python/Tanimoto.py
--- $$
---;
+CREATE OR REPLACE FUNCTION Tanimoto_P(v1 VARBINARY, v2 VARBINARY)
+     RETURNS FLOAT
+     LANGUAGE PYTHON
+     RETURNS NULL ON NULL INPUT
+     IMMUTABLE
+     RUNTIME_VERSION = '3.12'
+     ARTIFACT_REPOSITORY = snowflake.snowpark.pypi_shared_repository
+     PACKAGES = ('bitarray')
+     HANDLER = 'tanimoto'
+     COMMENT='A version of TANIMOTO implemented in Python. Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 1.0, that is, treats two empty bitsets or two bitsets filled with only zeroes as being equal to each other. Returns error if two bitsets are of different lengths. Returns NULL if one of both arguments are NULLs'
+     AS
+$$
+from typing import Optional
+from bitarray import bitarray
+def tanimoto(b1: Optional[bytes], b2: Optional[bytes])->Optional[float]:
+    if not b1 or not b2:
+        return None
+    b1b = bitarray()
+    b2b = bitarray()
+    b1b.frombytes(b1)
+    b2b.frombytes(b2)
+    if len(b1b) != len(b2b):
+        raise ValueError('Bitsets are of different lengths')
+    ba_and = b1b & b2b  #  intersection (common bits)
+    and_count = ba_and.count(1)
+    union_cnt = b1b.count(1) + b2b.count(1) - and_count  # could also use (b1b | b2b).count(1), but it would be slower
+    if union_cnt == 0:
+        return 0.0  # can only happen if both b1 and b2 have no bits set to 1
+    return and_count / float(union_cnt)
+$$
+;
 
 
 -- A version of Tanimoto implemented in Java.
@@ -1779,7 +1787,7 @@ $$
 -- that can correctly handle VARBINARY arguments and is available in Snowflake update bundle 2026_07
 CREATE OR REPLACE FUNCTION Tanimoto(v1 VARBINARY, v2 VARBINARY)
      RETURNS FLOAT
-     STRICT -- synonym for RETURNS NULL ON NULL INPUT
+     RETURNS NULL ON NULL INPUT
      COMMENT='Computes Tanimoto similarity between two bitsets represented by binary vectors. Returns BITCOUNT(v1 bitand v2) / BITCOUNT(v1 bitor v2) as float. If both v1 and v2 have no bits set to 1, returns 0.0, that is, treats two 0-length bitsets or two bitsets filled with only zeroes as being different from each other. The lengths of v1 and v2 must be the same, otheerwise, an exception will be raised. Returns NULL if one of both arguments are NULLs'
      AS
 $$
@@ -1788,7 +1796,7 @@ $$
 ;
 
 
--- Molecular properties and descriptor UDF's ---------------------------
+-- Category: Molecular properties and descriptor calculation
 
 CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary2Medchem_Descriptors(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL)
      RETURNS TABLE (Q_Estim_Drug_Likeness float, Mol_Wt float, Heavy_Atom_Mol_Wt float, Exact_Mol_Wt float, Num_Valence_Electrons int, Num_Radical_Electrons int, Max_Partial_Charge float, Min_Partial_Charge float, Max_Abs_Partial_Charge float, Min_Abs_Partial_Charge float, TPSA float, Fraction_CSP3 float, Heavy_Atom_Count int, Num_Aliphatic_Carbocycles int, Num_Aliphatic_Heterocycles int, Num_Aliphatic_Rings int, Num_Aromatic_Carbocycles int, Num_Aromatic_Heterocycles int, Num_Aromatic_Rings int, Num_HAcceptors int, Num_HDonors int, Num_Heteroatoms int, Num_Rotatable_Bonds int, Num_Saturated_Carbocycles int, Num_Saturated_Heterocycles int, Num_Saturated_Rings int, Ring_Count int, Mol_Log_P float, Mol_MR float)
@@ -1925,6 +1933,7 @@ class DGen:
 $$
 ;
 
+-- Category: Structure encoding and molecular graph validity check
 
 CREATE OR REPLACE FUNCTION Molstring_Or_Molbinary_Check(molstring VARCHAR DEFAULT NULL, molbinary VARBINARY DEFAULT NULL, raise_exception BOOLEAN DEFAULT FALSE)
      RETURNS TABLE (is_ok boolean, encoding varchar, error_msg varchar) 
@@ -2068,7 +2077,8 @@ class MolChecker:
 $$
 ;
 
--- HELM support (Proof of Concept) ---------------------------------------------------------
+-- Category: HELM support (experimental)
+
 CREATE OR REPLACE PROCEDURE helm2molbinary(monomer_table VARCHAR, helm_table VARCHAR)
      RETURNS table(ID INT, MOLBINARY VARBINARY)
      LANGUAGE PYTHON
@@ -2924,9 +2934,7 @@ def main(session: Session, monomer_table: str, helm_table: str) -> DataFrame:
 $$;
 
 
--------------------------------------------------------------------------------------------------------------------
--- Single-input convenience wrappers for Molstring_Or_Molbinary2* UDFs
--------------------------------------------------------------------------------------------------------------------
+-- Category: Single-input convenience wrappers for Molstring_Or_Molbinary2* UDFs
 
 CREATE OR REPLACE FUNCTION Conv_Mol2Molstring(molstring VARCHAR, options VARCHAR DEFAULT '--out smiles')
      RETURNS VARCHAR
@@ -2989,9 +2997,7 @@ $$
     SELECT * FROM TABLE(Molstring_Or_Molbinary2Medchem_Descriptors(NULL::VARCHAR, molbinary))
 $$;
 
--------------------------------------------------------------------------------------------------------------------
--- Single-input convenience wrappers for Draw_Molstring_Or_Molbinary2* UDFs
--------------------------------------------------------------------------------------------------------------------
+-- Category: Single-input convenience wrappers for Draw_Molstring_Or_Molbinary2* UDFs
 
 CREATE OR REPLACE FUNCTION Draw_Mol2SVG(molstring VARCHAR, highlight_smarts VARCHAR DEFAULT NULL, draw_options VARCHAR DEFAULT NULL, output_raw_xml BOOLEAN DEFAULT FALSE)
      RETURNS VARCHAR
